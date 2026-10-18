@@ -6,6 +6,7 @@ import Fastify from "fastify";
 import cookie from "@fastify/cookie";
 import fastifyStatic from "@fastify/static";
 
+import "dotenv/config";
 import { openDatabase, migrate, querier } from "./db.js";
 import {
   SESSION_COOKIE,
