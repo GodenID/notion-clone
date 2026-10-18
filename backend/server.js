@@ -1,4 +1,4 @@
-/* Notion Clone backend — Fastify API, SQLite storage, session auth, SSE realtime. */
+/* NookSpace backend — Fastify API, SQLite storage, session auth, SSE realtime. */
 
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -53,7 +53,7 @@ const frontendDir = join(root, "frontend");
 
 const PORT = Number(process.env.PORT || process.env.port || 5173);
 const HOST = process.env.HOST || "127.0.0.1";
-const DATABASE_FILE = process.env.DATABASE_FILE || join(root, ".data", "notion.sqlite");
+const DATABASE_FILE = process.env.DATABASE_FILE || join(root, ".data", "nookspace.sqlite");
 const UPLOAD_DIR = join(root, ".data", "uploads");
 
 export async function buildServer({ databaseFile = DATABASE_FILE, logger = false, env = process.env } = {}) {
@@ -290,8 +290,8 @@ export async function buildServer({ databaseFile = DATABASE_FILE, logger = false
     audit.record(request, { user, action: "auth.2fa.setup", target: user.id });
     return {
       secret,
-      otpauthUrl: `otpauth://totp/Notion%20Clone:${encodeURIComponent(user.email)}?secret=${secret}&issuer=Notion%20Clone&digits=6&period=30`,
-      qr: `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(`otpauth://totp/Notion%20Clone:${user.email}?secret=${secret}&issuer=Notion%20Clone`)}`,
+      otpauthUrl: `otpauth://totp/NookSpace:${encodeURIComponent(user.email)}?secret=${secret}&issuer=NookSpace&digits=6&period=30`,
+      qr: `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(`otpauth://totp/NookSpace:${user.email}?secret=${secret}&issuer=NookSpace`)}`,
     };
   });
 
@@ -905,7 +905,7 @@ if (isMain) {
       console.error(error);
       process.exit(1);
     }
-    console.log(`Notion clone API  → http://localhost:${PORT}`);
+    console.log(`NookSpace API  → http://localhost:${PORT}`);
     console.log(`Frontend          → http://localhost:${PORT}/app.html`);
     console.log(`Health            → http://localhost:${PORT}/api/health`);
   })();

@@ -1,4 +1,4 @@
-# 📓 Notion Clone
+# 📓 NookSpace
 
 <p align="center">
   <img src="https://img.shields.io/badge/status-in%20development-orange?style=for-the-badge" alt="status" />
@@ -81,7 +81,7 @@
 ## 🏗 Architecture
 
 ```
-notion-clone/
+nookspace/
 ├── backend/            Fastify API, SQLite, auth, storage, realtime
 │   ├── migrations/      Versioned .sql files, applied on boot
 │   ├── server.js        Routes, static hosting, SPA fallback
@@ -114,8 +114,8 @@ Force either with `?mode=server` / `?mode=local`, and add `?realtime=off` to kee
 Requires **Node.js 22.5+** (Node 24 recommended — it ships the SQLite build used here).
 
 ```bash
-git clone https://github.com/GodenID/notion-clone.git
-cd notion-clone
+git clone https://github.com/GodenID/nookspace.git
+cd nookspace
 npm install
 npm run dev
 ```
@@ -140,7 +140,7 @@ Open <http://localhost:5173>, create an account, and your demo workspace is seed
 |---|---|---|
 | `PORT` | `5173` | HTTP port |
 | `HOST` | `127.0.0.1` | Bind address |
-| `DATABASE_FILE` | `.data/notion.sqlite` | Use `:memory:` for a throwaway database |
+| `DATABASE_FILE` | `.data/nookspace.sqlite` | Use `:memory:` for a throwaway database |
 | `STORAGE_DRIVER` | `local` | `s3` is declared but not compiled in yet |
 | `S3_ENDPOINT` / `S3_BUCKET` / `S3_ACCESS_KEY` / `S3_SECRET_KEY` | — | Used by the S3 driver |
 | `LOG` | off | `LOG=1` enables Fastify request logging |

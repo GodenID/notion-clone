@@ -127,24 +127,24 @@ function applyRoute(route) {
 
 function updateDocumentMeta() {
   const view = state.activeView;
-  let title = "Notion Clone – Workspace";
+  let title = "NookSpace – Workspace";
   let description = "A working Notion-style workspace for notes, docs, teamspaces, and projects.";
   let type = "website";
 
   if (view.type === "teamspace") {
     const teamspace = getTeamspace(state, view.id);
     if (teamspace) {
-      title = `${teamspace.name} – Teamspace | Notion Clone`;
+      title = `${teamspace.name} – Teamspace | NookSpace`;
       description = teamspace.description || `Pages, notes, and projects in the ${teamspace.name} teamspace.`;
     }
   } else {
     const page = getPage(state, view.id);
     if (page) {
-      title = `${page.title || "Untitled"} – Notion Clone`;
+      title = `${page.title || "Untitled"} – NookSpace`;
       const first = page.blocks?.find((block) => stripHtml(block.text));
       description =
         (first ? stripHtml(first.text) : "").slice(0, 160) ||
-        "A page in your Notion Clone workspace.";
+        "A page in your NookSpace workspace.";
       type = "article";
     }
   }
@@ -1556,7 +1556,7 @@ $("#settings-save").addEventListener("click", () => {
   if (!session) return;
   const name = $("#settings-name").value.trim();
   const email = $("#settings-email").value.trim().toLowerCase();
-  const workspace = $("#settings-workspace").value.trim() || "Notion Clone";
+  const workspace = $("#settings-workspace").value.trim() || "NookSpace";
 
   if (name.length < 2 || !EMAIL_PATTERN.test(email)) {
     $("#settings-error").hidden = false;

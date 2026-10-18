@@ -22,7 +22,7 @@
       });
 
       localStorage.setItem(
-        "notion-clone:session",
+        "nookspace:session",
         JSON.stringify({ name: "Harness", email: "h@test.dev", color: "#2383e2" })
       );
 
@@ -103,7 +103,7 @@
       };
 
       localStorage.setItem(
-        "notion-clone:v2",
+        "nookspace:v2",
         JSON.stringify({
           version: 2,
           workspace: { name: "Harness" },
@@ -212,7 +212,7 @@
           click(doc.querySelector('[data-id="h8"] [data-table-action="delete-row"]'));
           await sleep(150);
           const rowsLeft = doc.querySelectorAll('[data-id="h8"] .block__table tr').length;
-          const tableState = JSON.parse(win.localStorage.getItem("notion-clone:v2")).pages
+          const tableState = JSON.parse(win.localStorage.getItem("nookspace:v2")).pages
             .find((p) => p.id === "h-page")
             .blocks.find((b) => b.id === "h8");
           log("table deletes row", rowsLeft === 1, `rows=${rowsLeft} state=${JSON.stringify(tableState.rows)}`);
@@ -236,7 +236,7 @@
           const createBtn = doc.querySelector('[data-id="h4"] .db-type-picker [data-db-action="property-create"][data-db-type="formula"]');
           click(createBtn);
           await sleep(220);
-          const dbState = JSON.parse(win.localStorage.getItem("notion-clone:v2")).pages
+          const dbState = JSON.parse(win.localStorage.getItem("nookspace:v2")).pages
             .find((p) => p.id === "h-page")
             .blocks.find((b) => b.id === "h4");
           log("property created", dbState.properties.length === 5, `props=${dbState.properties.length}`);
@@ -252,7 +252,7 @@
           log("filter panel opens", Boolean(doc.querySelector('[data-id="h4"] .db-filters-panel')));
           click(doc.querySelector('[data-id="h4"] [data-db-action="filter-add"]'));
           await sleep(200);
-          const filterCount = JSON.parse(win.localStorage.getItem("notion-clone:v2")).pages
+          const filterCount = JSON.parse(win.localStorage.getItem("nookspace:v2")).pages
             .find((p) => p.id === "h-page")
             .blocks.find((b) => b.id === "h4").filters.length;
           log("filter rule added", filterCount === 1, `filters=${filterCount}`);
@@ -302,7 +302,7 @@
           log("sub-page created", Boolean(doc.querySelector(".page-card")));
 
           /* ---------- persistence ---------- */
-          const raw = JSON.parse(win.localStorage.getItem("notion-clone:v2"));
+          const raw = JSON.parse(win.localStorage.getItem("nookspace:v2"));
           const stored = raw.pages.find((p) => p.id === "h-page");
           log("state persisted", stored.blocks.some((b) => b.type === "toggleh1"));
           log("colour persisted", stored.blocks.some((b) => b.color === "blue"));

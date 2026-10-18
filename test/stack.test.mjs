@@ -49,7 +49,7 @@ await test("register issues a session", async () => {
     })
   );
   if (response.statusCode !== 200) throw new Error(`status ${response.statusCode}`);
-  if (!cookie.startsWith("notion_session=")) throw new Error("no session cookie");
+  if (!cookie.startsWith("nookspace_session=")) throw new Error("no session cookie");
 });
 
 await test("a fresh workspace is empty", async () => {

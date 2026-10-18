@@ -497,7 +497,7 @@ await test("magic link verify signs the user in and burns the token", async () =
   });
   assert.equal(first.statusCode, 200);
   assert.equal(first.json().user.email, "owner@test.dev");
-  assert.match(String(first.headers["set-cookie"]), /notion_session=/);
+  assert.match(String(first.headers["set-cookie"]), /nookspace_session=/);
 
   const second = await isolatedServer.inject({
     method: "POST",

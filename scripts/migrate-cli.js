@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { openDatabase, migrate } from "../backend/db.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const file = process.env.DATABASE_FILE || join(root, ".data", "notion.sqlite");
+const file = process.env.DATABASE_FILE || join(root, ".data", "nookspace.sqlite");
 
 const db = openDatabase(file);
 const applied = migrate(db, { log: (message) => console.log(message) });

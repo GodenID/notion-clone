@@ -80,7 +80,7 @@ function createConsoleTransport() {
  * SMTP transport stub — wire a real provider in here.
  * `sendMail` receives { to, subject, text } and must resolve or reject.
  */
-export function createSmtpTransport(sendMail, { from = "no-reply@notion-clone.local" } = {}) {
+export function createSmtpTransport(sendMail, { from = "no-reply@nookspace.local" } = {}) {
   return async ({ email, url, purpose }) => {
     await sendMail({
       to: email,

@@ -1,5 +1,5 @@
 {
-  "name": "@notion-clone/backend",
+  "name": "@nookspace/backend",
   "version": "1.0.0",
   "private": true,
   "type": "module",

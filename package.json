@@ -1,5 +1,5 @@
 {
-  "name": "notion-clone",
+  "name": "nookspace",
   "version": "2.0.0",
   "private": true,
   "description": "A Notion-style workspace: block editor, databases, teamspaces, commands, comments — served by a Fastify + SQLite backend",

@@ -3,7 +3,7 @@
    drained to the API with exponential backoff. Nothing is lost when the network
    drops, and the UI can show "saving / saved / offline" from queue depth. */
 
-const KEY = "notion-clone:outbox";
+const KEY = "nookspace:outbox";
 
 function readQueue() {
   try {

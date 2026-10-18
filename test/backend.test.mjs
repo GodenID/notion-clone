@@ -74,7 +74,7 @@ await test("register creates a user and a session cookie", async () => {
   );
   assert.equal(response.statusCode, 200);
   assert.equal(response.json().user.email, "ada@example.com", "email should normalize");
-  assert.match(cookie, /notion_session=/);
+  assert.match(cookie, /nookspace_session=/);
 });
 
 await test("duplicate registration is rejected", async () => {
@@ -117,7 +117,7 @@ await test("login works with the right password", async () => {
     })
   );
   assert.equal(response.statusCode, 200);
-  assert.match(cookie, /notion_session=/);
+  assert.match(cookie, /nookspace_session=/);
   if (!cookie) cookie = saved;
 });
 
@@ -295,7 +295,7 @@ await test("frontend index is served", async () => {
 await test("slug routes fall back to the app shell", async () => {
   const response = await app.inject({ method: "GET", url: "/p/roadmap-2026" });
   assert.equal(response.statusCode, 200);
-  assert.match(response.body, /Notion Clone/);
+  assert.match(response.body, /NookSpace/);
 });
 
 await test("unknown api routes return json 404", async () => {

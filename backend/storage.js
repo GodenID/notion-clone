@@ -93,7 +93,7 @@ export function createLocalStorage(rootDir) {
  *
  *   STORAGE_DRIVER=s3
  *   S3_ENDPOINT=https://s3.example.com   (or https://s3.eu-west-1.amazonaws.com)
- *   S3_BUCKET=notion-clone
+ *   S3_BUCKET=nookspace
  *   S3_REGION=eu-west-1
  *   S3_ACCESS_KEY=...  S3_SECRET_KEY=...
  *   S3_FORCE_PATH_STYLE=1   (for MinIO, Ceph, R2, ...)

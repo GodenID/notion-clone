@@ -1,6 +1,6 @@
-export const STORAGE_KEY = "notion-clone:v2";
-export const LEGACY_STORAGE_KEY = "notion-clone:v1";
-export const SESSION_KEY = "notion-clone:session";
+export const STORAGE_KEY = "nookspace:v2";
+export const LEGACY_STORAGE_KEY = "nookspace:v1";
+export const SESSION_KEY = "nookspace:session";
 
 export const uid = () =>
   "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
@@ -524,7 +524,7 @@ export function createPageFromTemplate(state, template, options = {}) {
 export function createDefaultState() {
   return ensureSlugs({
     version: 2,
-    workspace: { name: "Notion Clone" },
+    workspace: { name: "NookSpace" },
     theme: "light",
     activeView: { type: "page", id: "page-getting-started" },
     collapsedTeamspaces: [],

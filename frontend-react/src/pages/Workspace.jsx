@@ -23,7 +23,7 @@ export default function Workspace() {
   return (
     <div className="shell">
       <aside className="shell__sidebar">
-        <div className="shell__brand">Notion Clone <span className="shell__badge">React</span></div>
+        <div className="shell__brand">NookSpace <span className="shell__badge">React</span></div>
         <nav>
           <h4>Pages</h4>
           <ul>

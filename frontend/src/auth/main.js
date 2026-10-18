@@ -149,7 +149,7 @@ function submit(event) {
 }
 
 async function demo() {
-  emailInput.value = "alex@notion.clone";
+  emailInput.value = "alex@nookspace.app";
   nameInput.value = "Alex Morgan";
   if (serverMode) {
     passwordInput.value = "demo-password";

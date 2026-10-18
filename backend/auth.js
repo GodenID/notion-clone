@@ -131,7 +131,7 @@ function hotp(hmac, digits) {
   return String(binary % 10 ** digits).padStart(digits, "0");
 }
 
-export const SESSION_COOKIE = "notion_session";
+export const SESSION_COOKIE = "nookspace_session";
 
 export function sessionCookie(id, { secure = false, maxAge = SESSION_TTL / 1000 } = {}) {
   const parts = [

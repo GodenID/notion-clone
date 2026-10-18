@@ -629,7 +629,7 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(port, () => {
-  console.log(`Notion clone running at http://localhost:${port}`);
+  console.log(`NookSpace running at http://localhost:${port}`);
   console.log(`Login:     http://localhost:${port}/`);
   console.log(`Workspace: http://localhost:${port}/app.html`);
   console.log(`Pages:     http://localhost:${port}/p/getting-started`);

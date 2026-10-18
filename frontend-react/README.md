@@ -8,11 +8,11 @@ at `frontend/` keeps working and is still the primary editor.
 
 ```bash
 # terminal 1
-cd notion-clone
+cd nookspace
 npm run dev
 
 # terminal 2
-cd notion-clone/frontend-react
+cd nookspace/frontend-react
 npm install
 npm run dev        # http://localhost:5174
 ```

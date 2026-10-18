@@ -99,7 +99,7 @@ app.post("/api/auth/register", async (c) => {
     stamp
   );
 
-  c.header("Set-Cookie", `notion_session=${encodeURIComponent(sessionId)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${30 * 24 * 60 * 60}`);
+  c.header("Set-Cookie", `nookspace_session=${encodeURIComponent(sessionId)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${30 * 24 * 60 * 60}`);
   return c.json({ user: { id, email, name, color: "#2383e2" } });
 });
 
@@ -124,18 +124,18 @@ app.post("/api/auth/login", async (c) => {
     expires
   );
 
-  c.header("Set-Cookie", `notion_session=${encodeURIComponent(sessionId)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${30 * 24 * 60 * 60}`);
+  c.header("Set-Cookie", `nookspace_session=${encodeURIComponent(sessionId)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${30 * 24 * 60 * 60}`);
   return c.json({ user: { id: row.id, email: row.email, name: row.name, color: row.color } });
 });
 
 app.post("/api/auth/logout", async (c) => {
   const db = createD1Adapter(c.env.DB);
   const cookie = c.req.header("Cookie") || "";
-  const match = cookie.match(/notion_session=([^;]+)/);
+  const match = cookie.match(/nookspace_session=([^;]+)/);
   if (match) {
     db.prepare("DELETE FROM sessions WHERE id = ?").run(decodeURIComponent(match[1]));
   }
-  c.header("Set-Cookie", "notion_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0");
+  c.header("Set-Cookie", "nookspace_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0");
   return c.json({ ok: true });
 });
 
@@ -148,7 +148,7 @@ app.get("/api/auth/me", async (c) => {
 
 async function readSession(c, db) {
   const cookie = c.req.header("Cookie") || "";
-  const match = cookie.match(/notion_session=([^;]+)/);
+  const match = cookie.match(/nookspace_session=([^;]+)/);
   if (!match) return null;
   const sessionId = decodeURIComponent(match[1]);
   const row = await c.env.DB.prepare(

@@ -56,7 +56,7 @@ export const OAUTH_PROVIDERS = {
       });
     },
     async fetchUser(accessToken) {
-      const headers = { Authorization: `Bearer ${accessToken}`, "User-Agent": "notion-clone" };
+      const headers = { Authorization: `Bearer ${accessToken}`, "User-Agent": "nookspace" };
       const userResponse = await fetch(this.userInfoUrl, { headers });
       if (!userResponse.ok) throw new Error("Could not fetch GitHub profile");
       const data = await userResponse.json();
