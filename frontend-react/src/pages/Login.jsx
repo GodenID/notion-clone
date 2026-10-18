@@ -1,8 +1,10 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth.jsx";
 
 export default function Login() {
   const { login, register } = useAuth();
+  const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
@@ -17,6 +19,7 @@ export default function Login() {
     try {
       if (mode === "register") await register(email, name || email.split("@")[0], password);
       else await login(email, password);
+      navigate("/", { replace: true });
     } catch (err) {
       setError(err.message);
     } finally {
