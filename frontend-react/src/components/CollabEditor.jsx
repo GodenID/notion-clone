@@ -78,4 +78,3 @@ export default function CollabEditor({ roomName = "default-room", username = "An
     </div>
   );
 }
-EOF
