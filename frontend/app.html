@@ -151,6 +151,7 @@
             <nav class="breadcrumbs" id="breadcrumbs" aria-label="Breadcrumb"></nav>
           </div>
           <div class="topbar__right">
+            <span class="sync-status" id="sync-status" hidden></span>
             <span class="topbar__edited" id="edited-label">Edited just now</span>
             <button class="topbar__share" id="share-btn">Share</button>
             <button class="icon-btn comments-btn" id="comments-btn" aria-label="Comments" aria-pressed="false">
@@ -186,6 +187,33 @@
                 <button class="ghost-btn" id="add-cover">Add cover</button>
                 <span class="role-badge" id="role-badge" hidden></span>
               </div>
+
+      <dialog class="share-dialog" id="share-dialog">
+        <form method="dialog" class="share-dialog__form">
+          <header class="share-dialog__header">
+            <h3>Share this page</h3>
+            <button class="icon-btn" value="close" aria-label="Close">✕</button>
+          </header>
+          <div class="share-dialog__body">
+            <label class="share-dialog__field">
+              <span>Email address</span>
+              <input id="share-email" type="email" placeholder="teammate@company.com" />
+            </label>
+            <label class="share-dialog__field">
+              <span>Role</span>
+              <select id="share-role">
+                <option value="viewer">Viewer — read only</option>
+                <option value="member">Member — can edit</option>
+              </select>
+            </label>
+            <button class="auth-submit share-dialog__add" id="share-add" type="button">
+              <span>Add</span>
+            </button>
+            <p class="auth-error" id="share-error" hidden></p>
+            <ul class="share-dialog__members" id="share-members"></ul>
+          </div>
+        </form>
+      </dialog>
 
               <h1 class="page__title" id="page-title" contenteditable="true" spellcheck="false" data-placeholder="Untitled"></h1>
               <div class="page__meta" id="page-meta">No one else is here</div>

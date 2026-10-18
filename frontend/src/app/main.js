@@ -295,7 +295,9 @@ function persist({ sidebar = true, topbar = true } = {}) {
   if (sidebar) renderSidebar();
   if (topbar) renderTopbar();
   refreshSidebarTree();
+  setSyncStatus("saving");
   scheduleServerSync(currentPage());
+  syncStatusTimer = setTimeout(() => setSyncStatus("saved"), 900);
 }
 
 /* ---------------- server sync ----------------
@@ -1301,6 +1303,113 @@ favoriteBtn.addEventListener("click", () => {
 });
 
 $("#share-btn").addEventListener("click", openShare);
+
+/* ---------------- share with people ---------------- */
+const shareDialog = document.getElementById("share-dialog");
+const shareEmailInput = document.getElementById("share-email");
+const shareRoleSelect = document.getElementById("share-role");
+const shareAddButton = document.getElementById("share-add");
+const shareError = document.getElementById("share-error");
+const shareMembersList = document.getElementById("share-members");
+
+async function refreshShareMembers() {
+  const page = currentPage();
+  if (!page || !isServer()) return;
+  try {
+    const data = await apiPages.members(page.id);
+    shareMembersList.innerHTML = "";
+    for (const member of data.members || []) {
+      const item = document.createElement("li");
+      item.className = "share-dialog__member";
+      item.innerHTML = `
+        <span class="share-dialog__avatar">${member.initials}</span>
+        <span class="share-dialog__name">${member.name}</span>
+        <span class="share-dialog__email">${member.email}</span>
+        <span class="share-dialog__role">${member.role}</span>
+        <button class="share-dialog__remove" data-user="${member.id}" aria-label="Remove access">✕</button>
+      `;
+      shareMembersList.appendChild(item);
+    }
+  } catch (error) {
+    shareError.textContent = error.message || "Could not load members";
+    shareError.hidden = false;
+  }
+}
+
+async function openSharePeople() {
+  const page = currentPage();
+  if (!page) {
+    toast("Open a page first");
+    return;
+  }
+  if (!isServer()) {
+    toast("Sharing needs the backend");
+    return;
+  }
+  shareError.hidden = true;
+  if (shareEmailInput) shareEmailInput.value = "";
+  if (shareMembersList) shareMembersList.innerHTML = "";
+  if (shareDialog && typeof shareDialog.showModal === "function") shareDialog.showModal();
+  else shareDialog?.setAttribute("open", "");
+  await refreshShareMembers();
+}
+
+async function addShareMember() {
+  const page = currentPage();
+  if (!page || !shareEmailInput) return;
+  shareError.hidden = true;
+  try {
+    await apiPages.addMember(page.id, {
+      email: shareEmailInput.value.trim(),
+      role: shareRoleSelect?.value || "viewer",
+    });
+    shareEmailInput.value = "";
+    await refreshShareMembers();
+    toast("Access granted");
+  } catch (error) {
+    shareError.textContent = error.message || "Could not share";
+    shareError.hidden = false;
+  }
+}
+
+async function removeShareMember(userId) {
+  const page = currentPage();
+  if (!page) return;
+  try {
+    await apiPages.removeMember(page.id, userId);
+    await refreshShareMembers();
+  } catch (error) {
+    toast(error.message || "Could not remove access");
+  }
+}
+
+shareAddButton?.addEventListener("click", addShareMember);
+shareMembersList?.addEventListener("click", (event) => {
+  const button = event.target.closest(".share-dialog__remove");
+  if (button) removeShareMember(button.dataset.user);
+});
+shareDialog?.addEventListener("close", () => {
+  if (shareError) shareError.hidden = true;
+});
+
+/* ---------------- sync status ---------------- */
+const syncStatus = document.getElementById("sync-status");
+let syncStatusTimer = null;
+
+function setSyncStatus(state) {
+  if (!syncStatus) return;
+  clearTimeout(syncStatusTimer);
+  syncStatus.hidden = false;
+  syncStatus.className = `sync-status sync-status--${state}`;
+  syncStatus.textContent =
+    state === "saving" ? "Saving…" :
+    state === "saved" ? "Saved" :
+    state === "offline" ? "Offline" :
+    state === "error" ? "Sync error" : "";
+  if (state === "saved") {
+    syncStatusTimer = setTimeout(() => (syncStatus.hidden = true), 1600);
+  }
+}
 
 /* ---------------- share ---------------- */
 const shareModal = $("#share-modal");
@@ -3260,6 +3369,7 @@ const COMMANDS = [
   { id: "undo", group: "Edit", label: "Undo", icon: "↩", shortcut: "Mod+Z", keywords: ["revert"], run: () => undo() },
   { id: "redo", group: "Edit", label: "Redo", icon: "↪", shortcut: "Mod+Shift+Z", keywords: ["repeat"], run: () => redo() },
   { id: "copy-link", group: "Edit", label: "Copy a share link to this page", icon: "🔗", keywords: ["share", "url"], run: () => openShare() },
+  { id: "share-people", group: "Edit", label: "Share this page with people", icon: "??", keywords: ["invite", "members", "access"], run: () => openSharePeople() },
   { id: "export", group: "Edit", label: "Export this page as Markdown", icon: "⬇", keywords: ["download", "md"], run: () => { const page = currentPage(); if (page) exportMarkdown(page); else toast("Open a page first"); } },
   { id: "version-history", group: "Edit", label: "Open version history", icon: "🕘", keywords: ["restore", "history"], run: () => { const page = currentPage(); if (page) openHistory(page); else toast("Open a page first"); } },
 

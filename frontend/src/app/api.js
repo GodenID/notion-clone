@@ -147,6 +147,15 @@ export const pages = {
   saveBlocks(id, blocks) {
     return put(`${API.base}/pages/${id}/blocks`, { blocks });
   },
+  members(id) {
+    return get(`${API.base}/pages/${id}/members`);
+  },
+  addMember(id, input) {
+    return post(`${API.base}/pages/${id}/members`, input);
+  },
+  removeMember(id, userId) {
+    return del(`${API.base}/pages/${id}/members/${userId}`);
+  },
 };
 
 /* ---------------- comments ---------------- */

@@ -617,6 +617,43 @@ kbd {
   border: 1px solid rgba(55, 53, 47, 0.12);
 }
 
+.sync-status {
+  font-size: 11px;
+  color: #8a8a86;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(55, 53, 47, 0.06);
+  transition: opacity 0.2s ease;
+}
+
+.sync-status--saved { color: #2f6b4f; }
+.sync-status--error, .sync-status--offline { color: #b03a2e; }
+
+.share-dialog {
+  border: 0;
+  border-radius: 14px;
+  padding: 0;
+  width: min(420px, 92vw);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.18);
+  overflow: hidden;
+}
+
+.share-dialog::backdrop { background: rgba(0, 0, 0, 0.35); backdrop-filter: blur(2px); }
+.share-dialog__form { display: flex; flex-direction: column; }
+.share-dialog__header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid rgba(55, 53, 47, 0.08); }
+.share-dialog__header h3 { margin: 0; font-size: 16px; }
+.share-dialog__body { padding: 18px 20px 20px; display: flex; flex-direction: column; gap: 12px; }
+.share-dialog__field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #6b6b68; }
+.share-dialog__field input, .share-dialog__field select { padding: 9px 12px; border: 1px solid rgba(55, 53, 47, 0.16); border-radius: 8px; font: inherit; font-size: 14px; background: #fff; }
+.share-dialog__add { align-self: flex-start; padding: 8px 18px; border: 0; border-radius: 8px; background: #37352f; color: #fff; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.share-dialog__members { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; max-height: 220px; overflow-y: auto; }
+.share-dialog__member { display: grid; grid-template-columns: 28px 1fr auto auto; gap: 10px; align-items: center; padding: 6px 8px; border-radius: 8px; background: rgba(55, 53, 47, 0.04); }
+.share-dialog__avatar { width: 28px; height: 28px; border-radius: 50%; background: #2383e2; color: #fff; display: grid; place-items: center; font-size: 11px; font-weight: 600; }
+.share-dialog__name { font-size: 13px; font-weight: 600; }
+.share-dialog__email { grid-column: 2; font-size: 11px; color: #8a8a86; }
+.share-dialog__role { font-size: 11px; color: #6b6b68; text-transform: capitalize; }
+.share-dialog__remove { border: 0; background: none; cursor: pointer; color: #8a8a86; font-size: 14px; }
+
 .page.has-cover .page__title {
   margin-top: 20px;
 }
