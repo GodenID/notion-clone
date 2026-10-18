@@ -241,7 +241,14 @@
       <div class="slash-menu__empty" id="slash-empty" hidden>No results</div>
     </div>
 
-    <!-- block action menu -->
+    <!-- mention menu -->
+    <div class="slash-menu mention-menu" id="mention-menu" role="listbox" hidden>
+      <div class="slash-menu__head"><span>Mention</span></div>
+      <div class="slash-menu__list" id="mention-list"></div>
+      <div class="slash-menu__empty" id="mention-empty" hidden>No matches</div>
+    </div>
+
+<!-- block action menu -->
     <div class="popover" id="block-menu" hidden>
       <button data-block-action="color">Color &amp; background</button>
       <button data-block-action="comment">Comment on block</button>
@@ -263,9 +270,17 @@
       <button data-format="underline" title="Underline"><u>U</u></button>
       <button data-format="strikeThrough" title="Strikethrough"><s>S</s></button>
       <button data-format="code" title="Inline code" class="mono">&lt;/&gt;</button>
+      <button data-format="highlight" title="Highlight" data-color-toggle="highlight">
+        <span class="toolbar-swatch" style="--swatch:#f7cb45"></span>
+      </button>
+      <button data-format="color" title="Text color" data-color-toggle="color">
+        <span class="toolbar-swatch toolbar-swatch--text" style="--swatch:#337ea9"></span>
+      </button>
       <span class="inline-toolbar__divider"></span>
       <button data-format="link" title="Link">🔗</button>
+      <button data-format="mention" title="Mention a page or date">@</button>
       <button data-format="comment" title="Comment">💬</button>
+      <div class="inline-toolbar__panel" id="inline-color-panel" hidden></div>
     </div>
 
     <!-- search -->
@@ -439,6 +454,64 @@
           <button class="btn-text danger" id="empty-trash">Empty trash</button>
           <span class="dialog__spacer"></span>
           <button class="btn-primary" id="trash-done">Done</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- command palette -->
+    <div class="modal" id="command-modal" hidden>
+      <div class="modal__scrim" data-close-command></div>
+      <div class="search" role="dialog" aria-modal="true" aria-label="Command palette">
+        <div class="search__field">
+          <svg viewBox="0 0 16 16" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M2.5 4.5h11M6.5 4.5v9M9.5 4.5v6M2.5 8.5h11" stroke-linecap="round" />
+          </svg>
+          <input id="command-input" type="text" placeholder="Type a command…" autocomplete="off" />
+          <kbd>esc</kbd>
+        </div>
+        <div class="search__results" id="command-results"></div>
+        <div class="search__footer">
+          <span><kbd>↑</kbd><kbd>↓</kbd> to navigate</span>
+          <span><kbd>↵</kbd> to run</span>
+          <span><kbd>?</kbd> all shortcuts</span>
+        </div>
+      </div>
+    </div>
+
+<!-- keyboard shortcuts -->
+    <div class="modal modal--center" id="shortcuts-modal" hidden>
+      <div class="modal__scrim" data-close-shortcuts></div>
+      <div class="dialog dialog--lg" role="dialog" aria-modal="true" aria-labelledby="shortcuts-title">
+        <div class="dialog__head">
+          <div>
+            <p class="dialog__eyebrow">REFERENCE</p>
+            <h2 class="dialog__title" id="shortcuts-title">Keyboard shortcuts</h2>
+            <p class="dialog__text" id="shortcuts-hint">Everything you can do without the mouse.</p>
+          </div>
+          <button class="icon-btn" id="shortcuts-close" aria-label="Close">✕</button>
+        </div>
+        <div class="shortcut-grid" id="shortcut-grid"></div>
+        <div class="dialog__actions">
+          <button class="btn-text" id="shortcuts-done">Done</button>
+        </div>
+      </div>
+    </div>
+
+<!-- onboarding -->
+    <div class="modal modal--center" id="onboarding-modal" hidden>
+      <div class="modal__scrim" data-close-onboarding></div>
+      <div class="dialog onboarding" role="dialog" aria-modal="true" aria-labelledby="onboarding-title">
+        <div class="onboarding__progress" id="onboarding-progress"></div>
+        <div class="onboarding__art" id="onboarding-art">👋</div>
+        <h2 class="dialog__title" id="onboarding-title">Welcome</h2>
+        <p class="dialog__text" id="onboarding-text"></p>
+        <ul class="onboarding__points" id="onboarding-points"></ul>
+        <div class="onboarding__keys" id="onboarding-keys"></div>
+        <div class="dialog__actions">
+          <button class="btn-text" id="onboarding-skip">Skip tour</button>
+          <span class="dialog__spacer"></span>
+          <button class="btn-text" id="onboarding-back">Back</button>
+          <button class="btn-primary" id="onboarding-next">Next</button>
         </div>
       </div>
     </div>

@@ -1,5 +1,24 @@
 import { createBlock } from "./store.js";
 import katex from "../../vendor/katex/katex.mjs";
+import {
+  buildDatabasePanel,
+  buildFiltersPanel,
+  buildPropertyMenu,
+  buildViewMenu,
+  currentView as databaseView,
+  ensureDatabase,
+  propertyById as databaseProperty,
+} from "./database-view.js";
+import {
+  emptyCell,
+  FORMULA_FUNCTION_NAMES,
+  makeDefaultProperty,
+  makeRow,
+  PROPERTY_TYPES,
+  STATUS_GROUPS,
+  uid as dbUid,
+} from "./database.js";
+import { CODE_LANGUAGES, LANGUAGE_LABELS, highlightCode, normalizeLanguage } from "./highlight.js";
 
 export const BLOCK_CATEGORIES = [
   { id: "basic", label: "Basic blocks" },
@@ -45,6 +64,7 @@ export const BLOCK_DEFS = [
   { type: "database-list", category: "database", label: "List view", desc: "Compact one-line row list.", icon: "≣", keywords: "database list compact rows view" },
   { type: "database-calendar", category: "database", label: "Calendar view", desc: "Rows placed on a month grid.", icon: "🗓", keywords: "database calendar month schedule view" },
   { type: "database-timeline", category: "database", label: "Timeline view", desc: "Rows as bars across a schedule.", icon: "⏳", keywords: "database timeline gantt schedule bar view" },
+  { type: "database-linked", category: "database", label: "Linked database", desc: "Mirror rows from another database.", icon: "⇄", keywords: "linked database relation mirror sync view" },
 
   /* advanced */
   { type: "pagelink", category: "advanced", label: "Link to page", desc: "Link another page and create backlinks.", icon: "↗", keywords: "page link mention backlink" },
@@ -70,14 +90,7 @@ const DATABASE_VIEW_DEFS = {
   "database-calendar": "calendar",
   "database-timeline": "timeline",
 };
-const DEFAULT_DATABASE_VIEWS = [
-  { id: "table", name: "Table", type: "table" },
-  { id: "board", name: "Board", type: "board" },
-  { id: "gallery", name: "Gallery", type: "gallery" },
-  { id: "list", name: "List", type: "list" },
-  { id: "calendar", name: "Calendar", type: "calendar" },
-  { id: "timeline", name: "Timeline", type: "timeline" },
-];
+const DATABASE_VIEW_TYPES = ["table", "board", "gallery", "list", "calendar", "timeline"];
 
 export const BLOCK_COLORS = [
   { id: "", label: "Default", swatch: "transparent" },
@@ -332,6 +345,21 @@ function sanitizeHtml(html) {
           else child.removeAttribute("href");
           continue;
         }
+        if (
+          child.tagName === "SPAN" &&
+          name === "class" &&
+          attribute.value === "mention" &&
+          child.dataset.mention
+        ) {
+          continue;
+        }
+        if (
+          child.tagName === "SPAN" &&
+          child.dataset.mention &&
+          ["data-mention", "data-page-id", "data-date", "data-atomic"].includes(name)
+        ) {
+          continue;
+        }
         child.removeAttribute(attribute.name);
       }
       if (child.tagName === "A") {
@@ -359,6 +387,7 @@ export function createEditor({
   getSynced,
   onSyncedUpdate,
   onCreatePage,
+  getMembers,
 }) {
   let page = null;
   let activeBlockId = null;
@@ -374,6 +403,9 @@ export function createEditor({
   const slashEmpty = document.getElementById("slash-empty");
   const slashLabel = document.getElementById("slash-label");
   const blockMenu = document.getElementById("block-menu");
+  const mentionMenu = document.getElementById("mention-menu");
+  const mentionList = document.getElementById("mention-list");
+  const mentionEmpty = document.getElementById("mention-empty");
   const inlineToolbar = document.getElementById("inline-toolbar");
 
   const imageFileInput = document.createElement("input");
@@ -412,6 +444,7 @@ export function createEditor({
 
     if (type === "callout") block.emoji = block.emoji || "💡";
     if (type === "code" && !block.language) block.language = "javascript";
+    if (type === "code" && typeof block.wrap !== "boolean") block.wrap = false;
     if (type === "toggle" || TOGGLE_HEADINGS[type]) {
       block.open = block.open !== false;
       if (typeof block.body !== "string") block.body = "";
@@ -513,734 +546,738 @@ export function createEditor({
   }
 
   function newDatabaseRow(block, overrides = {}) {
-    const cells = {};
+    const row = makeRow(block.properties || []);
     for (const property of block.properties || []) {
-      cells[property.id] = Object.prototype.hasOwnProperty.call(overrides, property.id)
-        ? overrides[property.id]
-        : "";
+      if (Object.prototype.hasOwnProperty.call(overrides, property.id)) {
+        row.cells[property.id] = overrides[property.id];
+      }
     }
-    return { id: createBlock().id, cells };
+    return row;
   }
 
-  function databaseView(block) {
-    return (
-      (block.views || []).find((view) => view.id === block.activeView) ||
-      (block.views || [])[0] || { id: "table", name: "Table", type: "table" }
-    );
-  }
-
-  function databaseTitleProperty(block) {
-    return (
-      (block.properties || []).find((property) => property.type === "title") ||
-      (block.properties || [])[0] || { id: "title", name: "Name", type: "title" }
-    );
-  }
-
-  function databaseRows(block) {
-    const query = String(block.filterText || "").trim().toLowerCase();
-    let rows = [...(block.rows || [])];
-    if (query) {
-      rows = rows.filter((row) =>
-        (block.properties || []).some((property) =>
-          String(row.cells?.[property.id] ?? "")
-            .toLowerCase()
-            .includes(query)
-        )
-      );
-    }
-    if (block.sortProperty) {
-      const property = (block.properties || []).find((item) => item.id === block.sortProperty);
-      if (property) {
-        rows.sort((a, b) => {
-          const left = String(a.cells?.[property.id] ?? "");
-          const right = String(b.cells?.[property.id] ?? "");
-          if (!left && right) return 1;
-          if (left && !right) return -1;
-          let result;
-          if (property.type === "number") {
-            const leftNumber = Number(left);
-            const rightNumber = Number(right);
-            result =
-              Number.isFinite(leftNumber) && Number.isFinite(rightNumber)
-                ? leftNumber - rightNumber
-                : left.localeCompare(right, undefined, { numeric: true });
-          } else if (property.type === "checkbox") {
-            result = Number(Boolean(left)) - Number(Boolean(right));
-          } else {
-            result = left.localeCompare(right, undefined, { numeric: true });
-          }
-          return block.sortDirection === "desc" ? -result : result;
+  /* ---------------- database context ---------------- */
+  function allDatabases() {
+    const found = [];
+    for (const item of getPages?.() ?? []) {
+      for (const block of item.blocks || []) {
+        if (block.type !== "database" || block.linked?.dbId) continue;
+        const title = (block.properties || []).find((property) => property.type === "title");
+        found.push({
+          id: block.id,
+          label: `${item.title || "Untitled"} · ${title?.name || "Database"}`,
+          block,
+          page: item,
         });
       }
     }
-    return rows;
+    return found;
   }
 
-  function databaseGroupProperty(block) {
+  function findDatabaseBlock(dbId) {
+    if (!dbId) return null;
+    for (const item of allDatabases()) {
+      if (item.id === dbId) return item.block;
+    }
+    return null;
+  }
+
+  function relationTargetBlock(property) {
+    return findDatabaseBlock(property?.relation?.dbId);
+  }
+
+  function relationTitleProperty(block) {
     return (
-      (block.properties || []).find((property) => property.id === block.boardGroupBy) ||
-      (block.properties || []).find((property) => property.type === "select") ||
+      (block?.properties || []).find((property) => property.type === "title") ||
+      (block?.properties || [])[0] ||
       null
     );
   }
 
-  function databaseGroupValue(row, property) {
-    return property ? String(row.cells?.[property.id] ?? "") : "";
+  function databaseValueContext(block) {
+    return {
+      relationLabel: (property, rowId) => {
+        const target = relationTargetBlock(property);
+        const title = relationTitleProperty(target);
+        if (!target || !title) return "";
+        const row = (target.rows || []).find((item) => item.id === rowId);
+        return row ? String(row.cells?.[title.id] ?? "") : "";
+      },
+      rollupRows: (config) => {
+        const relation = (block.properties || []).find(
+          (property) => property.id === config?.relationPropId && property.type === "relation"
+        );
+        const target = relationTargetBlock(relation);
+        if (!target) return [];
+        const ids = new Set();
+        for (const row of block.rows || []) {
+          const value = row.cells?.[relation.id];
+          if (Array.isArray(value)) for (const id of value) ids.add(id);
+        }
+        return (target.rows || []).filter((row) => ids.has(row.id));
+      },
+      rollupProperty: (config) => {
+        const relation = (block.properties || []).find(
+          (property) => property.id === config?.relationPropId && property.type === "relation"
+        );
+        const target = relationTargetBlock(relation);
+        return (target?.properties || []).find((property) => property.id === config?.targetPropId) || null;
+      },
+    };
   }
 
-  function databaseDateProperty(block) {
-    return (block.properties || []).find((property) => property.type === "date") ?? null;
+  function databaseContext(block) {
+    return {
+      valueContext: () => databaseValueContext(block),
+      members: () => getMembers?.() ?? [],
+      formulaNames: () => FORMULA_FUNCTION_NAMES,
+      databases: () => allDatabases(),
+      relationProperties: (property) => {
+        const target = relationTargetBlock(property);
+        return (target?.properties || []).filter((item) => item.type !== "rollup");
+      },
+      relationLabel: (property, rowId) => databaseValueContext(block).relationLabel(property, rowId),
+      relationCandidates: (property) => {
+        const target = relationTargetBlock(property);
+        const title = relationTitleProperty(target);
+        if (!target || !title) return [];
+        return (target.rows || []).map((row) => ({
+          id: row.id,
+          label: String(row.cells?.[title.id] ?? "Untitled"),
+        }));
+      },
+      linkedRows: (linkedBlock) => findDatabaseBlock(linkedBlock?.linked?.dbId),
+    };
   }
 
-  function databaseEndDateProperty(block) {
-    const dates = (block.properties || []).filter((property) => property.type === "date");
-    return dates[1] ?? null;
+  function buildDatabase(currentBlock) {
+    return buildDatabasePanel(currentBlock, databaseContext(currentBlock));
   }
 
-  function databaseRowDate(row, block) {
-    const property = databaseDateProperty(block);
-    if (!property) return "";
-    const value = String(row.cells?.[property.id] ?? "");
-    return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : "";
+  /* ---------------- database interactions ---------------- */
+  function rowById(block, rowId) {
+    return (block.rows || []).find((row) => row.id === rowId) || null;
   }
 
-  function databaseRowEndDate(row, block) {
-    const property = databaseEndDateProperty(block);
-    if (!property) return "";
-    const value = String(row.cells?.[property.id] ?? "");
-    return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : "";
+  function touchRow(block, row) {
+    if (!row) return;
+    row.updatedAt = Date.now();
+    void block;
   }
 
-  function databaseSelectCell(row, property, className) {
-    const select = document.createElement("select");
-    select.className = className || "db-cell-select";
-    select.dataset.dbRow = row.id;
-    select.dataset.dbProp = property.id;
-    const value = String(row.cells?.[property.id] ?? "");
-    select.innerHTML =
-      `<option value="">—</option>` +
-      (property.options || [])
-        .map(
-          (option) =>
-            `<option value="${escapeHtml(option)}"${
-              option === value ? " selected" : ""
-            }>${escapeHtml(option)}</option>`
-        )
-        .join("");
-    return select;
+  function closeCodeLanguages() {
+    container.querySelectorAll(".code-lang-picker").forEach((node) => node.remove());
   }
 
-  function databaseCardTitle(row, property) {
-    const title = document.createElement("div");
-    title.className = "db-card-title";
-    title.contentEditable = "true";
-    title.spellcheck = false;
-    title.dataset.dbRow = row.id;
-    title.dataset.dbProp = property.id;
-    title.dataset.placeholder = "Untitled";
-    title.textContent = row.cells?.[property.id] || "";
-    return title;
+  function closeDatabasePanels() {
+    container.querySelectorAll(".db-filters-panel, .db-prop-menu, .db-view-menu").forEach((node) => {
+      node.remove();
+    });
   }
 
-  function databaseRowDateInput(row, property) {
+  function mountDatabasePanel(block, panel, anchor) {
+    closeDatabasePanels();
+    const panelBlock = elById(block.id);
+    panelBlock?.appendChild(panel);
+    void anchor;
+  }
+
+  function handleDatabaseFieldChange(block, event) {
+    const control = event.target.closest("[data-db-action]");
+    if (!control) return false;
+    const action = control.dataset.dbAction;
+    const property = databaseProperty(block, control.dataset.dbProp);
+    const commit = () => {
+      save();
+      render();
+    };
+
+    switch (action) {
+      case "property-rename":
+        if (property && control.value.trim()) property.name = control.value.trim();
+        commit();
+        return true;
+
+      case "property-type": {
+        if (!property) return true;
+        const nextType = control.value;
+        property.type = nextType;
+        property.id = property.id;
+        if (PROPERTY_TYPES[nextType]?.options && !property.options) {
+          property.options =
+            nextType === "status"
+              ? STATUS_GROUPS.slice(0, 3).map((group) => group.name)
+              : ["Option 1", "Option 2", "Option 3"];
+        }
+        if (nextType === "formula" && !property.formula) property.formula = 'prop("Name")';
+        if (nextType === "rollup" && !property.rollup) {
+          property.rollup = { relationPropId: "", targetPropId: "", fn: "count" };
+        }
+        if (nextType === "relation" && !property.relation) property.relation = { dbId: "" };
+        for (const row of block.rows) row.cells[property.id] = emptyCell(property);
+        commit();
+        return true;
+      }
+
+      case "property-options":
+        if (property) {
+          property.options = control.value
+            .split(",")
+            .map((option) => option.trim())
+            .filter(Boolean);
+          if (!property.options.length) property.options = ["Option 1"];
+        }
+        commit();
+        return true;
+
+      case "property-formula":
+        if (property) property.formula = control.value;
+        commit();
+        return true;
+
+      case "property-format":
+        if (property) property.format = control.value;
+        commit();
+        return true;
+
+      case "property-rollup-relation":
+        if (property) {
+          property.rollup = {
+            ...(property.rollup || {}),
+            relationPropId: control.value,
+            targetPropId: "",
+          };
+        }
+        commit();
+        return true;
+
+      case "property-rollup-target":
+        if (property) {
+          property.rollup = { ...(property.rollup || {}), targetPropId: control.value };
+        }
+        commit();
+        return true;
+
+      case "property-rollup-fn":
+        if (property) {
+          property.rollup = { ...(property.rollup || {}), fn: control.value };
+        }
+        commit();
+        return true;
+
+      case "property-relation-db":
+        if (property) property.relation = { dbId: control.value };
+        commit();
+        return true;
+
+      case "filter-prop": {
+        const rule = (block.filters || []).find((item) => item.id === control.dataset.dbRule);
+        if (rule) rule.propId = control.value;
+        commit();
+        return true;
+      }
+
+      case "filter-op": {
+        const rule = (block.filters || []).find((item) => item.id === control.dataset.dbRule);
+        if (rule) rule.op = control.value;
+        commit();
+        return true;
+      }
+
+      case "filter-value": {
+        const rule = (block.filters || []).find((item) => item.id === control.dataset.dbRule);
+        if (rule) rule.value = control.value;
+        save();
+        return true;
+      }
+
+      default:
+        return false;
+    }
+  }
+
+  function handleDatabaseAction(block, event) {
+    const target = event.target.closest("[data-db-action]");
+    const blockEl = elById(block.id);
+
+    if (!target) {
+      if (!event.target.closest(".db-filters-panel, .db-prop-menu, .db-view-menu, .db-toolbar")) {
+        closeDatabasePanels();
+      }
+      return false;
+    }
+
+    const action = target.dataset.dbAction;
+    const dataset = target.dataset;
+    const commit = () => {
+      save();
+      render();
+    };
+
+    switch (action) {
+      case "view":
+        block.activeView = dataset.view;
+        commit();
+        return true;
+
+      case "add-view": {
+        const type = dataset.viewType || "table";
+        const existing = (block.views || []).filter((view) => view.type === type).length;
+        const id = `${type}-${Math.random().toString(36).slice(2, 7)}`;
+        block.views.push({
+          id,
+          name: existing ? `${type[0].toUpperCase()}${type.slice(1)} ${existing + 1}` : type[0].toUpperCase() + type.slice(1),
+          type,
+        });
+        block.activeView = id;
+        commit();
+        return true;
+      }
+
+      case "view-menu":
+        mountDatabasePanel(block, buildViewMenu(block, databaseContext(block)), target);
+        return true;
+
+      case "view-menu-close":
+        closeDatabasePanels();
+        return true;
+
+      case "view-rename": {
+        event.stopPropagation();
+        const view = (block.views || []).find((item) => item.id === dataset.view);
+        if (!view) return true;
+        const name = window.prompt("View name", view.name);
+        if (name === null) return true;
+        view.name = name.trim() || view.name;
+        commit();
+        return true;
+      }
+
+      case "view-delete": {
+        if ((block.views || []).length <= 1) {
+          onToast?.("A database needs at least one view");
+          return true;
+        }
+        block.views = block.views.filter((view) => view.id !== dataset.view);
+        if (block.activeView === dataset.view) block.activeView = block.views[0].id;
+        commit();
+        return true;
+      }
+
+      case "add-row":
+        block.rows.push(newDatabaseRow(block));
+        commit();
+        return true;
+
+      case "add-property": {
+        const picker = document.createElement("div");
+        picker.className = "db-prop-menu db-type-picker";
+        const grid = document.createElement("div");
+        grid.className = "db-type-grid";
+        for (const [type, meta] of Object.entries(PROPERTY_TYPES)) {
+          if (type === "title") continue;
+          const button = document.createElement("button");
+          button.type = "button";
+          button.dataset.dbAction = "property-create";
+          button.dataset.dbType = type;
+          button.innerHTML = `<span class="db-type-icon">${escapeHtml(
+            meta.icon
+          )}</span><span>${escapeHtml(meta.label)}</span>`;
+          grid.appendChild(button);
+        }
+        picker.appendChild(grid);
+        mountDatabasePanel(block, picker, target);
+        return true;
+      }
+
+      case "property-create": {
+        const type = dataset.dbType || "text";
+        const property = makeDefaultProperty(type, { name: PROPERTY_TYPES[type]?.label || "Property" });
+        block.properties.push(property);
+        for (const row of block.rows) row.cells[property.id] = emptyCell(property);
+        commit();
+        return true;
+      }
+
+      case "property-menu": {
+        const property = databaseProperty(block, dataset.dbProp);
+        if (!property) return true;
+        mountDatabasePanel(block, buildPropertyMenu(block, property, databaseContext(block)), target);
+        return true;
+      }
+
+      case "property-close":
+        closeDatabasePanels();
+        return true;
+
+      case "property-delete": {
+        const index = (block.properties || []).findIndex((item) => item.id === dataset.dbProp);
+        if (index < 0) return true;
+        if (block.properties[index].type === "title") {
+          onToast?.("The title property cannot be removed");
+          return true;
+        }
+        block.properties.splice(index, 1);
+        for (const row of block.rows) delete row.cells[dataset.dbProp];
+        commit();
+        return true;
+      }
+
+      case "filters":
+        if (blockEl?.querySelector(".db-filters-panel")) {
+          closeDatabasePanels();
+          return true;
+        }
+        mountDatabasePanel(block, buildFiltersPanel(block, databaseContext(block)), target);
+        return true;
+
+      case "filter-add": {
+        const first = (block.properties || [])[0];
+        if (!first) return true;
+        block.filters = block.filters || [];
+        block.filters.push({ id: dbUid(), propId: first.id, op: "contains", value: "" });
+        commit();
+        mountDatabasePanel(block, buildFiltersPanel(block, databaseContext(block)), target);
+        return true;
+      }
+
+      case "filter-delete":
+        block.filters = (block.filters || []).filter((rule) => rule.id !== dataset.dbRule);
+        commit();
+        mountDatabasePanel(block, buildFiltersPanel(block, databaseContext(block)), target);
+        return true;
+
+      case "filter-clear":
+        block.filters = [];
+        commit();
+        mountDatabasePanel(block, buildFiltersPanel(block, databaseContext(block)), target);
+        return true;
+
+      case "delete-row": {
+        block.rows = block.rows.filter((row) => row.id !== dataset.dbRow);
+        if (!block.rows.length) block.rows.push(newDatabaseRow(block));
+        commit();
+        return true;
+      }
+
+      case "add-group": {
+        const group =
+          databaseProperty(block, block.boardGroupBy) ||
+          (block.properties || []).find(
+            (property) => property.type === "status" || property.type === "select"
+          );
+        const row = newDatabaseRow(block);
+        if (group) row.cells[group.id] = dataset.group ?? "";
+        block.rows.push(row);
+        commit();
+        return true;
+      }
+
+      case "cal-prev":
+      case "cal-next": {
+        const cursor = parseMonthKey(block.calendarMonth);
+        cursor.setMonth(cursor.getMonth() + (action === "cal-next" ? 1 : -1), 1);
+        block.calendarMonth = monthKey(cursor);
+        commit();
+        return true;
+      }
+
+      case "cal-today":
+        block.calendarMonth = monthKey(new Date());
+        commit();
+        return true;
+
+      case "cal-add": {
+        const property = (block.properties || []).find((item) => item.type === "date");
+        if (!property) return true;
+        block.rows.push(newDatabaseRow(block, { [property.id]: dataset.date || isoToday() }));
+        commit();
+        return true;
+      }
+
+      case "multiselect-add": {
+        const row = rowById(block, dataset.dbRow);
+        const property = databaseProperty(block, dataset.dbProp);
+        if (!row || !property || !target.value) return true;
+        const values = Array.isArray(row.cells[property.id]) ? [...row.cells[property.id]] : [];
+        if (!values.includes(target.value)) values.push(target.value);
+        row.cells[property.id] = values;
+        touchRow(block, row);
+        commit();
+        return true;
+      }
+
+      case "multiselect-remove": {
+        const row = rowById(block, dataset.dbRow);
+        const property = databaseProperty(block, dataset.dbProp);
+        if (!row || !property) return true;
+        const values = Array.isArray(row.cells[property.id]) ? [...row.cells[property.id]] : [];
+        row.cells[property.id] = values.filter((value) =>
+          property.type === "files"
+            ? value?.name !== dataset.value
+            : value !== dataset.value
+        );
+        touchRow(block, row);
+        commit();
+        return true;
+      }
+
+      case "files-add":
+        requestRowFileUpload(block, dataset.dbRow, dataset.dbProp);
+        return true;
+
+      case "relation-add": {
+        const row = rowById(block, dataset.dbRow);
+        const property = databaseProperty(block, dataset.dbProp);
+        if (!row || !property || !target.value) return true;
+        const values = Array.isArray(row.cells[property.id]) ? [...row.cells[property.id]] : [];
+        values.push(target.value);
+        row.cells[property.id] = values;
+        touchRow(block, row);
+        commit();
+        return true;
+      }
+
+      case "relation-open":
+      case "relation-open-row": {
+        const property = databaseProperty(block, dataset.dbProp);
+        const targetDb = property ? findDatabaseBlock(property.relation?.dbId) : findDatabaseBlock(block.linked?.dbId);
+        if (!targetDb) return true;
+        const entry = allDatabases().find((item) => item.id === targetDb.id);
+        if (!entry) return true;
+        openPageBlock(block, entry);
+        return true;
+      }
+
+      case "url-open": {
+        const row = rowById(block, dataset.dbRow);
+        const url = safeUrl(row?.cells?.[dataset.dbProp]);
+        if (!url) {
+          onToast?.("Add a URL to this cell first");
+          return true;
+        }
+        window.open(url, "_blank", "noopener,noreferrer");
+        return true;
+      }
+
+      default:
+        return false;
+    }
+  }
+
+  /* ---------------- mentions ---------------- */
+  let mention = null; // { blockId, query, index }
+
+  function mentionItems() {
+    const query = (mention?.query ?? "").trim().toLowerCase();
+    const items = [];
+
+    const pages = (getPages?.() ?? [])
+      .filter((item) => item.id !== page?.id)
+      .filter((item) => !query || `${item.title || "Untitled"}`.toLowerCase().includes(query))
+      .slice(0, 8)
+      .map((item) => ({
+        kind: "page",
+        id: item.id,
+        icon: item.icon || "📄",
+        label: item.title || "Untitled",
+        hint: "Page",
+      }));
+
+    const dates = [
+      { kind: "date", id: "today", icon: "📅", label: "Today", hint: "Insert today's date", value: isoToday() },
+      {
+        kind: "date",
+        id: "tomorrow",
+        icon: "📅",
+        label: "Tomorrow",
+        hint: "Insert tomorrow's date",
+        value: (() => {
+          const date = new Date();
+          date.setDate(date.getDate() + 1);
+          return isoTodayFrom(date);
+        })(),
+      },
+    ].filter((item) => !query || item.label.toLowerCase().includes(query));
+
+    items.push(...dates);
+    items.push(...pages);
+    return items;
+  }
+
+  function openMention(blockEl) {
+    mention = { blockId: blockEl.dataset.id, query: "", index: 0 };
+    renderMention();
+    mentionMenu.hidden = false;
+    const rect = caretRect() ?? blockEl.getBoundingClientRect();
+    mentionMenu.style.left = "0px";
+    mentionMenu.style.top = "0px";
+    const width = mentionMenu.offsetWidth;
+    const height = mentionMenu.offsetHeight;
+    const left = Math.min(Math.max(10, rect.left), window.innerWidth - width - 10);
+    const below = window.innerHeight - rect.bottom;
+    mentionMenu.style.left = `${left}px`;
+    mentionMenu.style.top = `${
+      below < height + 14 ? Math.max(10, rect.top - height - 6) : rect.bottom + 6
+    }px`;
+  }
+
+  function closeMention() {
+    mention = null;
+    mentionMenu.hidden = true;
+  }
+
+  function renderMention() {
+    const items = mentionItems();
+    mention.index = Math.min(mention.index, Math.max(0, items.length - 1));
+    mentionList.innerHTML = "";
+    items.forEach((item, index) => {
+      const button = document.createElement("button");
+      button.className = `mention-item${index === mention.index ? " is-active" : ""}`;
+      button.setAttribute("role", "option");
+      button.innerHTML = `
+        <span class="mention-item__icon">${escapeHtml(item.icon)}</span>
+        <span class="mention-item__label">${escapeHtml(item.label)}</span>
+        <span class="mention-item__hint">${escapeHtml(item.hint)}</span>`;
+      button.addEventListener("mousedown", (event) => {
+        event.preventDefault();
+        applyMention(item);
+      });
+      mentionList.appendChild(button);
+    });
+    mentionEmpty.hidden = items.length > 0;
+    mentionList.querySelector(".is-active")?.scrollIntoView({ block: "nearest" });
+  }
+
+  function applyMention(item) {
+    if (!mention) return;
+    const block = blockById(mention.blockId);
+    const blockEl = elById(mention.blockId);
+    closeMention();
+    if (!block || !blockEl) return;
+
+    const input = inputOf(blockEl);
+    if (!input) return;
+
+    const label =
+      item.kind === "date"
+        ? formatDateLabel(item.value, { month: "short" })
+        : item.label;
+    const attributes =
+      item.kind === "date"
+        ? `data-mention="date" data-date="${escapeHtml(item.value)}"`
+        : `data-mention="page" data-page-id="${escapeHtml(item.id)}"`;
+    const html = `<span class="mention" contenteditable="false" data-atomic="true" ${attributes}>${escapeHtml(
+      item.icon
+    )} ${escapeHtml(label)}</span>&nbsp;`;
+
+    document.execCommand("insertHTML", false, html);
+    if (!mentionReplaced(input)) replaceMentionQuery(input, html, block);
+    block.text = input.innerHTML;
+    save();
+  }
+
+  function mentionReplaced(input) {
+    return Boolean(input.querySelector(".mention"));
+  }
+
+  function replaceMentionQuery(input, html, block) {
+    const sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return;
+    const range = sel.getRangeAt(0);
+    const text = input.textContent || "";
+    const at = text.lastIndexOf("@");
+    if (at < 0) return;
+    const probe = document.createRange();
+    probe.selectNodeContents(input);
+    try {
+      probe.setEnd(range.endContainer, range.endOffset);
+    } catch {
+      return;
+    }
+    const caret = probe.toString().length;
+    const startRange = textRangeAt(input, at);
+    if (!startRange) return;
+    const replace = document.createRange();
+    replace.setStart(startRange.startContainer, startRange.startOffset);
+    replace.setEnd(range.endContainer, range.endOffset);
+    replace.deleteContents();
+    const holder = document.createElement("div");
+    holder.innerHTML = html;
+    const node = holder.firstChild;
+    replace.insertNode(node);
+    const after = document.createRange();
+    after.setStartAfter(node.lastChild || node);
+    after.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(after);
+    void caret;
+    void block;
+  }
+
+  function textRangeAt(root, offset) {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let position = 0;
+    let node = walker.nextNode();
+    while (node) {
+      const length = node.nodeValue.length;
+      if (offset >= position && offset <= position + length) {
+        const range = document.createRange();
+        range.setStart(node, offset - position);
+        return range;
+      }
+      position += length;
+      node = walker.nextNode();
+    }
+    return null;
+  }
+
+  function mentionQueryFor(text) {
+    const at = text.lastIndexOf("@");
+    if (at < 0) return null;
+    const query = text.slice(at + 1);
+    if (/\s/.test(query)) return null;
+    if (query.length > 40) return null;
+    return query;
+  }
+
+  function openPageBlock(block, entry) {
+    const page = entry.page;
+    if (!page) return;
+    const blockIndex = page.blocks.findIndex((item) => item.id === entry.block.id);
+    onOpenPage?.(page.id, { blockId: entry.block.id, blockIndex });
+    void block;
+  }
+
+  function requestRowFileUpload(block, rowId, propertyId) {
     const input = document.createElement("input");
-    input.type = "date";
-    input.className = "db-cell-date";
-    input.dataset.dbRow = row.id;
-    input.dataset.dbProp = property.id;
-    const value = String(row.cells?.[property.id] ?? "");
-    input.value = /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : "";
-    return input;
-  }
-
-  function databaseRowDelete(row, label = "Delete") {
-    const remove = document.createElement("button");
-    remove.type = "button";
-    remove.className = "db-row-delete";
-    remove.dataset.dbAction = "delete-row";
-    remove.dataset.dbRow = row.id;
-    remove.textContent = label;
-    return remove;
-  }
-
-  function buildDatabaseGallery(block, rows, titleProperty) {
-    const gallery = document.createElement("div");
-    gallery.className = "db-gallery";
-    const dateProperty = databaseDateProperty(block);
-
-    for (const row of rows) {
-      const card = document.createElement("div");
-      card.className = "db-gallery-card";
-      card.dataset.dbRow = row.id;
-
-      const preview = document.createElement("div");
-      preview.className = "db-gallery-preview";
-      const cover = String(row.cells?.[block.coverProperty ?? ""] ?? "");
-      preview.dataset.placeholder = "No preview";
-      if (cover) {
-        const url = safeUrl(cover, { image: true });
-        if (url) {
-          const image = document.createElement("img");
-          image.src = url;
-          image.loading = "lazy";
-          image.alt = "Preview";
-          preview.appendChild(image);
-        } else {
-          preview.textContent = cover;
-        }
+    input.type = "file";
+    input.hidden = true;
+    document.body.appendChild(input);
+    input.addEventListener("change", async () => {
+      const file = input.files?.[0];
+      input.remove();
+      const row = rowById(block, rowId);
+      if (!file || !row) return;
+      try {
+        const response = await fetch(`/api/media?name=${encodeURIComponent(file.name)}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/octet-stream" },
+          body: file,
+          cache: "no-store",
+        });
+        const payload = await response.json().catch(() => null);
+        if (!response.ok || !payload?.url) throw new Error(payload?.error || "Upload failed");
+        const values = Array.isArray(row.cells[propertyId]) ? [...row.cells[propertyId]] : [];
+        values.push({ name: payload.name, url: payload.url, mime: payload.mime, size: payload.size });
+        row.cells[propertyId] = values;
+        touchRow(block, row);
+        save();
+        render();
+      } catch (error) {
+        onToast?.(error.message || "Upload failed");
       }
-      card.appendChild(preview);
-
-      const body = document.createElement("div");
-      body.className = "db-gallery-body";
-      body.appendChild(databaseCardTitle(row, titleProperty));
-
-      const meta = document.createElement("div");
-      meta.className = "db-gallery-meta";
-      for (const property of block.properties || []) {
-        if (property.id === titleProperty.id || property.type === "title") continue;
-        if (property.type === "select") {
-          const chip = databaseSelectCell(row, property, "db-chip-select");
-          meta.appendChild(chip);
-        } else if (property.type === "checkbox") {
-          const input = document.createElement("input");
-          input.type = "checkbox";
-          input.className = "db-cell-check";
-          input.dataset.dbRow = row.id;
-          input.dataset.dbProp = property.id;
-          input.checked = Boolean(row.cells?.[property.id]);
-          meta.appendChild(input);
-        } else if (property.type === "date" && property.id === dateProperty?.id) {
-          meta.appendChild(databaseRowDateInput(row, property));
-        } else {
-          const value = document.createElement("div");
-          value.className = "db-cell";
-          value.contentEditable = "true";
-          value.spellcheck = false;
-          value.dataset.dbRow = row.id;
-          value.dataset.dbProp = property.id;
-          value.dataset.placeholder = "—";
-          value.textContent = row.cells?.[property.id] ?? "";
-          meta.appendChild(value);
-        }
-      }
-      body.appendChild(meta);
-      body.appendChild(databaseRowDelete(row));
-      card.appendChild(body);
-      gallery.appendChild(card);
-    }
-
-    return gallery;
-  }
-
-  function buildDatabaseList(block, rows, titleProperty) {
-    const list = document.createElement("div");
-    list.className = "db-list";
-    const selectProperties = (block.properties || []).filter(
-      (property) => property.type === "select"
-    );
-    const checkboxProperty = (block.properties || []).find(
-      (property) => property.type === "checkbox"
-    );
-
-    for (const row of rows) {
-      const item = document.createElement("div");
-      item.className = "db-list-row";
-      item.dataset.dbRow = row.id;
-
-      if (checkboxProperty) {
-        const input = document.createElement("input");
-        input.type = "checkbox";
-        input.className = "db-cell-check";
-        input.dataset.dbRow = row.id;
-        input.dataset.dbProp = checkboxProperty.id;
-        input.checked = Boolean(row.cells?.[checkboxProperty.id]);
-        item.appendChild(input);
-      }
-
-      const title = databaseCardTitle(row, titleProperty);
-      title.classList.add("db-list-title");
-      item.appendChild(title);
-
-      const trailing = document.createElement("div");
-      trailing.className = "db-list-meta";
-      for (const property of selectProperties) {
-        trailing.appendChild(databaseSelectCell(row, property, "db-chip-select"));
-      }
-      for (const property of block.properties || []) {
-        if (property.type !== "date") continue;
-        trailing.appendChild(databaseRowDateInput(row, property));
-      }
-      item.appendChild(trailing);
-      item.appendChild(databaseRowDelete(row, "✕"));
-      list.appendChild(item);
-    }
-
-    return list;
-  }
-
-  function buildDatabaseCalendar(block, rows, titleProperty) {
-    const wrap = document.createElement("div");
-    wrap.className = "db-calendar";
-
-    const dateProperty = databaseDateProperty(block);
-    if (!dateProperty) {
-      const empty = document.createElement("div");
-      empty.className = "db-empty";
-      empty.textContent = "Add a date property to use the calendar view.";
-      wrap.appendChild(empty);
-      return wrap;
-    }
-
-    const cursor = parseMonthKey(block.calendarMonth);
-    const year = cursor.getFullYear();
-    const month = cursor.getMonth();
-
-    const head = document.createElement("div");
-    head.className = "db-calendar-head";
-    head.innerHTML = `
-      <button type="button" class="db-cal-nav" data-db-action="cal-prev">‹</button>
-      <span class="db-cal-title">${escapeHtml(
-        cursor.toLocaleDateString(undefined, { month: "long", year: "numeric" })
-      )}</span>
-      <button type="button" class="db-cal-nav" data-db-action="cal-next">›</button>
-      <button type="button" class="db-cal-nav" data-db-action="cal-today">Today</button>`;
-    wrap.appendChild(head);
-
-    const grid = document.createElement("div");
-    grid.className = "db-cal-grid";
-    for (const label of ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]) {
-      const weekday = document.createElement("div");
-      weekday.className = "db-cal-weekday";
-      weekday.textContent = label;
-      grid.appendChild(weekday);
-    }
-
-    const first = new Date(year, month, 1);
-    const offset = (first.getDay() + 6) % 7;
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-    const today = dayKey(new Date());
-    const byDay = new Map();
-    for (const row of rows) {
-      const date = databaseRowDate(row, block);
-      if (!date) continue;
-      if (!byDay.has(date)) byDay.set(date, []);
-      byDay.get(date).push(row);
-    }
-
-    for (let index = 0; index < offset; index += 1) {
-      const blank = document.createElement("div");
-      blank.className = "db-cal-cell is-empty";
-      grid.appendChild(blank);
-    }
-
-    for (let day = 1; day <= daysInMonth; day += 1) {
-      const date = new Date(year, month, day);
-      const key = dayKey(date);
-      const cell = document.createElement("div");
-      cell.className = `db-cal-cell${key === today ? " is-today" : ""}`;
-
-      const label = document.createElement("div");
-      label.className = "db-cal-day";
-      label.textContent = String(day);
-      cell.appendChild(label);
-
-      for (const row of byDay.get(key) || []) {
-        const chip = document.createElement("button");
-        chip.type = "button";
-        chip.className = "db-cal-item";
-        chip.dataset.dbAction = "delete-row";
-        chip.dataset.dbRow = row.id;
-        chip.textContent = String(row.cells?.[titleProperty.id] || "Untitled");
-        cell.appendChild(chip);
-      }
-
-      const add = document.createElement("button");
-      add.type = "button";
-      add.className = "db-cal-add";
-      add.dataset.dbAction = "cal-add";
-      add.dataset.date = key;
-      add.title = "Add a row on this day";
-      add.textContent = "+";
-      cell.appendChild(add);
-
-      grid.appendChild(cell);
-    }
-
-    wrap.appendChild(grid);
-    return wrap;
-  }
-
-  function buildDatabaseTimeline(block, rows, titleProperty) {
-    const wrap = document.createElement("div");
-    wrap.className = "db-timeline";
-
-    const startProperty = databaseDateProperty(block);
-    const endProperty = databaseEndDateProperty(block);
-    if (!startProperty) {
-      const empty = document.createElement("div");
-      empty.className = "db-empty";
-      empty.textContent = "Add a date property to use the timeline view.";
-      wrap.appendChild(empty);
-      return wrap;
-    }
-
-    const dated = rows
-      .map((row) => {
-        const start = databaseRowDate(row, block);
-        const end = databaseRowEndDate(row, block) || start;
-        return { row, start, end: end < start ? start : end };
-      })
-      .filter((item) => item.start);
-
-    if (!dated.length) {
-      const empty = document.createElement("div");
-      empty.className = "db-empty";
-      empty.textContent = "No dated rows in this view yet.";
-      wrap.appendChild(empty);
-      return wrap;
-    }
-
-    let min = dated.reduce((acc, item) => (item.start < acc ? item.start : acc), dated[0].start);
-    let max = dated.reduce((acc, item) => (item.end > acc ? item.end : acc), dated[0].end);
-
-    if (block.timelineStart && /^(\d{4}-\d{2}-\d{2})$/.test(block.timelineStart)) {
-      min = block.timelineStart < min ? block.timelineStart : min;
-    }
-    if (block.timelineEnd && /^(\d{4}-\d{2}-\d{2})$/.test(block.timelineEnd)) {
-      max = block.timelineEnd > max ? block.timelineEnd : max;
-    }
-
-    const startDate = new Date(`${min}T00:00:00`);
-    const endDate = new Date(`${max}T00:00:00`);
-    const totalDays = Math.max(
-      1,
-      Math.round((endDate.getTime() - startDate.getTime()) / 86400000) + 1
-    );
-    const DAY_WIDTH = 22;
-
-    const head = document.createElement("div");
-    head.className = "db-timeline-head";
-    head.innerHTML = `
-      <span class="db-timeline-label"></span>
-      <span class="db-timeline-scale" style="--day-width:${DAY_WIDTH}px;--days:${totalDays}"></span>`;
-    const scale = head.querySelector(".db-timeline-scale");
-    const cursor = new Date(startDate);
-    let index = 0;
-    while (cursor.getMonth() === startDate.getMonth() || index === 0) {
-      const tick = document.createElement("span");
-      const offset = Math.round(
-        (cursor.getTime() - startDate.getTime()) / 86400000
-      );
-      tick.className = "db-timeline-tick";
-      tick.style.left = `${offset * DAY_WIDTH}px`;
-      tick.textContent = cursor.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-      if (offset > totalDays) break;
-      scale.appendChild(tick);
-      cursor.setMonth(cursor.getMonth() + 1, 1);
-      index += 1;
-      if (cursor.getFullYear() > endDate.getFullYear()) break;
-      if (index > 24) break;
-    }
-    wrap.appendChild(head);
-
-    const body = document.createElement("div");
-    body.className = "db-timeline-body";
-    body.style.setProperty("--day-width", `${DAY_WIDTH}px`);
-
-    for (const item of dated) {
-      const rowEl = document.createElement("div");
-      rowEl.className = "db-timeline-row";
-
-      const title = document.createElement("div");
-      title.className = "db-timeline-title";
-      title.contentEditable = "true";
-      title.spellcheck = false;
-      title.dataset.dbRow = item.row.id;
-      title.dataset.dbProp = titleProperty.id;
-      title.dataset.placeholder = "Untitled";
-      title.textContent = String(item.row.cells?.[titleProperty.id] || "Untitled");
-      rowEl.appendChild(title);
-
-      const track = document.createElement("div");
-      track.className = "db-timeline-track";
-      track.style.setProperty("--days", String(totalDays));
-
-      const bar = document.createElement("div");
-      bar.className = "db-timeline-bar";
-      const startOffset = Math.round(
-        (new Date(`${item.start}T00:00:00`).getTime() - startDate.getTime()) / 86400000
-      );
-      const endOffset = Math.round(
-        (new Date(`${item.end}T00:00:00`).getTime() - startDate.getTime()) / 86400000
-      );
-      bar.style.setProperty("--start", String(Math.max(0, startOffset)));
-      bar.style.setProperty("--span", String(Math.max(1, endOffset - startOffset + 1)));
-
-      const label = document.createElement("span");
-      label.className = "db-timeline-bar-label";
-      const startLabel = formatDateLabel(item.start, { month: "short", year: undefined });
-      label.textContent =
-        startOffset === endOffset ? startLabel : `${startLabel} → ${formatDateLabel(item.end, { month: "short", year: undefined })}`;
-      bar.appendChild(label);
-      track.appendChild(bar);
-      rowEl.appendChild(track);
-
-      const controls = document.createElement("div");
-      controls.className = "db-timeline-controls";
-      controls.appendChild(databaseRowDateInput(item.row, startProperty));
-      if (endProperty) controls.appendChild(databaseRowDateInput(item.row, endProperty));
-      controls.appendChild(databaseRowDelete(item.row));
-      rowEl.appendChild(controls);
-
-      body.appendChild(rowEl);
-    }
-
-    wrap.appendChild(body);
-    return wrap;
-  }
-
-  function buildDatabase(block) {
-    const wrap = document.createElement("div");
-    wrap.className = "database-block";
-    const view = databaseView(block);
-    const titleProperty = databaseTitleProperty(block);
-    const rows = databaseRows(block);
-
-    const toolbar = document.createElement("div");
-    toolbar.className = "db-toolbar";
-
-    const viewTabs = (block.views || [])
-      .map(
-        (item) =>
-          `<button type="button" class="db-view-tab${item.id === view.id ? " is-active" : ""}" data-db-action="view" data-view="${escapeHtml(
-            item.id
-          )}">${escapeHtml(item.name)}</button>`
-      )
-      .join("");
-
-    const sortOptions = (block.properties || [])
-      .map(
-        (property) =>
-          `<option value="${escapeHtml(property.id)}"${
-            block.sortProperty === property.id ? " selected" : ""
-          }>${escapeHtml(property.name)}</option>`
-      )
-      .join("");
-
-    const selectProperties = (block.properties || []).filter(
-      (property) => property.type === "select"
-    );
-    const activeGroup = databaseGroupProperty(block);
-    const boardGroupControl =
-      view.type === "board" && selectProperties.length
-        ? `<select class="db-board-group" aria-label="Group by">${selectProperties
-            .map(
-              (property) =>
-                `<option value="${escapeHtml(property.id)}"${
-                  property.id === activeGroup?.id ? " selected" : ""
-                }>Group: ${escapeHtml(property.name)}</option>`
-            )
-            .join("")}</select>`
-        : "";
-
-    toolbar.innerHTML = `
-      <div class="db-view-tabs">${viewTabs}</div>
-      <input class="db-filter" type="text" placeholder="Filter…" value="${escapeHtml(
-        block.filterText || ""
-      )}" />
-      <select class="db-sort-prop" aria-label="Sort by">
-        <option value="">Sort…</option>${sortOptions}
-      </select>
-      <select class="db-sort-dir" aria-label="Sort direction">
-        <option value="asc"${block.sortDirection !== "desc" ? " selected" : ""}>A–Z</option>
-        <option value="desc"${block.sortDirection === "desc" ? " selected" : ""}>Z–A</option>
-      </select>
-      ${boardGroupControl}
-      <span class="db-toolbar__spacer"></span>
-      <button type="button" class="db-tool-btn" data-db-action="add-row">+ New</button>
-      <button type="button" class="db-tool-btn" data-db-action="add-property">+ Property</button>`;
-    wrap.appendChild(toolbar);
-
-    if (view.type === "gallery") {
-      wrap.appendChild(buildDatabaseGallery(block, rows, titleProperty));
-      return wrap;
-    }
-
-    if (view.type === "list") {
-      wrap.appendChild(buildDatabaseList(block, rows, titleProperty));
-      return wrap;
-    }
-
-    if (view.type === "calendar") {
-      wrap.appendChild(buildDatabaseCalendar(block, rows, titleProperty));
-      return wrap;
-    }
-
-    if (view.type === "timeline") {
-      wrap.appendChild(buildDatabaseTimeline(block, rows, titleProperty));
-      return wrap;
-    }
-
-    if (view.type === "board") {
-      const groupProperty = databaseGroupProperty(block);
-      if (!groupProperty) {
-        const empty = document.createElement("div");
-        empty.className = "db-empty";
-        empty.textContent = "Add a select property to group this board.";
-        wrap.appendChild(empty);
-        return wrap;
-      }
-
-      const options = Array.isArray(groupProperty.options) ? [...groupProperty.options] : [];
-      const extraValues = [...new Set(rows.map((row) => databaseGroupValue(row, groupProperty)))].filter(
-        (value) => value && !options.includes(value)
-      );
-      options.push(...extraValues, "");
-
-      const board = document.createElement("div");
-      board.className = "db-board";
-
-      for (const option of options) {
-        const groupRows = rows.filter((row) => databaseGroupValue(row, groupProperty) === option);
-        const column = document.createElement("div");
-        column.className = "db-board-col";
-        column.innerHTML = `
-          <div class="db-board-head">
-            <span>${escapeHtml(option || "No value")}</span>
-            <span>${groupRows.length}</span>
-          </div>`;
-
-        for (const row of groupRows) {
-          const card = document.createElement("div");
-          card.className = "db-board-card";
-          card.dataset.dbRow = row.id;
-
-          card.appendChild(databaseCardTitle(row, titleProperty));
-
-          const groupSelect = document.createElement("select");
-          groupSelect.className = "db-cell-select db-board-select";
-          groupSelect.dataset.dbRow = row.id;
-          groupSelect.dataset.dbProp = groupProperty.id;
-          groupSelect.innerHTML =
-            `<option value="">No value</option>` +
-            (groupProperty.options || [])
-              .map(
-                (value) =>
-                  `<option value="${escapeHtml(value)}"${
-                    value === option ? " selected" : ""
-                  }>${escapeHtml(value)}</option>`
-              )
-              .join("");
-          card.appendChild(groupSelect);
-
-          const dateProperty = databaseDateProperty(block);
-          if (dateProperty) card.appendChild(databaseRowDateInput(row, dateProperty));
-
-          card.appendChild(databaseRowDelete(row));
-          column.appendChild(card);
-        }
-
-        const add = document.createElement("button");
-        add.type = "button";
-        add.className = "db-board-add";
-        add.dataset.dbAction = "add-group";
-        add.dataset.group = option;
-        add.textContent = "+ New";
-        column.appendChild(add);
-        board.appendChild(column);
-      }
-
-      wrap.appendChild(board);
-      return wrap;
-    }
-
-    const tableWrap = document.createElement("div");
-    tableWrap.className = "db-table-wrap";
-    const table = document.createElement("table");
-    table.className = "db-table";
-
-    const head = document.createElement("thead");
-    const headRow = document.createElement("tr");
-    for (const property of block.properties || []) {
-      const th = document.createElement("th");
-      const name = document.createElement("span");
-      name.className = "db-prop-name";
-      name.contentEditable = "true";
-      name.spellcheck = false;
-      name.dataset.dbPropName = property.id;
-      name.textContent = property.name;
-      th.appendChild(name);
-      headRow.appendChild(th);
-    }
-    const actionHead = document.createElement("th");
-    actionHead.className = "db-actions-head";
-    headRow.appendChild(actionHead);
-    head.appendChild(headRow);
-    table.appendChild(head);
-
-    const body = document.createElement("tbody");
-    if (!rows.length) {
-      const tr = document.createElement("tr");
-      const td = document.createElement("td");
-      td.className = "db-empty";
-      td.colSpan = (block.properties?.length || 0) + 1;
-      td.textContent = "No rows match this view.";
-      tr.appendChild(td);
-      body.appendChild(tr);
-    }
-
-    for (const row of rows) {
-      const tr = document.createElement("tr");
-      for (const property of block.properties || []) {
-        const td = document.createElement("td");
-        const value = row.cells?.[property.id] ?? "";
-
-        if (property.type === "select") {
-          td.appendChild(databaseSelectCell(row, property));
-        } else if (property.type === "date") {
-          td.appendChild(databaseRowDateInput(row, property));
-        } else if (property.type === "number") {
-          const input = document.createElement("input");
-          input.type = "number";
-          input.className = "db-cell-number";
-          input.dataset.dbRow = row.id;
-          input.dataset.dbProp = property.id;
-          input.value = value;
-          td.appendChild(input);
-        } else if (property.type === "checkbox") {
-          const input = document.createElement("input");
-          input.type = "checkbox";
-          input.className = "db-cell-check";
-          input.dataset.dbRow = row.id;
-          input.dataset.dbProp = property.id;
-          input.checked = Boolean(value);
-          td.appendChild(input);
-        } else {
-          const cell = document.createElement("div");
-          cell.className = "db-cell";
-          cell.contentEditable = "true";
-          cell.spellcheck = false;
-          cell.dataset.dbRow = row.id;
-          cell.dataset.dbProp = property.id;
-          cell.textContent = value;
-          td.appendChild(cell);
-        }
-        tr.appendChild(td);
-      }
-
-      const actionCell = document.createElement("td");
-      actionCell.className = "db-actions-cell";
-      const remove = databaseRowDelete(row, "✕");
-      remove.title = "Delete row";
-      actionCell.appendChild(remove);
-      tr.appendChild(actionCell);
-      body.appendChild(tr);
-    }
-    table.appendChild(body);
-    tableWrap.appendChild(table);
-    wrap.appendChild(tableWrap);
-    return wrap;
+    });
+    input.click();
   }
 
   function blockPlainText(block) {
@@ -1613,6 +1650,17 @@ export function createEditor({
     return probe.toString().length === 0;
   }
 
+  function caretOffsetIn(input) {
+    const sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return 0;
+    const range = sel.getRangeAt(0);
+    if (!input.contains(range.startContainer)) return 0;
+    const probe = document.createRange();
+    probe.selectNodeContents(input);
+    probe.setEnd(range.endContainer, range.endOffset);
+    return probe.toString().length;
+  }
+
   function focusBlock(id, where = "start") {
     const el = elById(id);
     if (!el) return;
@@ -1963,8 +2011,12 @@ export function createEditor({
     if (block.type === "table") {
       const wrap = document.createElement("div");
       wrap.className = "table-wrap";
+      const scroll = document.createElement("div");
+      scroll.className = "block__table-wrap";
       const table = document.createElement("table");
       table.className = "block__table";
+      const widths = Array.isArray(block.colWidths) ? block.colWidths : [];
+
       block.rows.forEach((cells, rowIndex) => {
         const tr = document.createElement("tr");
         cells.forEach((cell, columnIndex) => {
@@ -1977,20 +2029,36 @@ export function createEditor({
           td.className = "table-cell";
           td.dataset.row = String(rowIndex);
           td.dataset.col = String(columnIndex);
+          if (widths[columnIndex]) td.style.width = `${widths[columnIndex]}px`;
           const color = block.cellColors?.[`${rowIndex}:${columnIndex}`];
           if (color) td.dataset.color = color;
           td.textContent = cell || "";
           tr.appendChild(td);
+
+          const resizer = document.createElement("div");
+          resizer.className = "table-resizer";
+          resizer.dataset.tableAction = "resize";
+          resizer.dataset.col = String(columnIndex);
+          resizer.title = "Drag to resize";
+          td.appendChild(resizer);
         });
         table.appendChild(tr);
       });
+
       const actions = document.createElement("div");
       actions.className = "table-actions";
       actions.innerHTML = `
         <button type="button" data-table-action="row">+ Row</button>
         <button type="button" data-table-action="col">+ Column</button>
+        <button type="button" data-table-action="delete-row">− Row</button>
+        <button type="button" data-table-action="delete-col">− Column</button>
         <button type="button" data-table-action="header-row" aria-pressed="${block.headerRow !== false}">Header row</button>
         <button type="button" data-table-action="header-column" aria-pressed="${block.headerColumn !== false}">Header column</button>
+        <span class="table-align" role="group" aria-label="Cell alignment">
+          <button type="button" data-table-action="align-left" aria-pressed="${(block.align || "left") === "left"}">≡</button>
+          <button type="button" data-table-action="align-center" aria-pressed="${block.align === "center"}">≡</button>
+          <button type="button" data-table-action="align-right" aria-pressed="${block.align === "right"}">≡</button>
+        </span>
         <span class="table-actions__label">Cell</span>
         <span class="table-swatches">${BLOCK_COLORS.slice(1)
           .map(
@@ -2000,7 +2068,10 @@ export function createEditor({
           .join("")}</span>
         <span class="table-actions__spacer"></span>
         <button type="button" data-table-action="clear-color">Clear color</button>`;
-      wrap.append(table, actions);
+
+      scroll.appendChild(table);
+      wrap.append(scroll, actions);
+      if (block.align && block.align !== "left") table.dataset.align = block.align;
       row.appendChild(wrap);
       el.appendChild(row);
       return el;
@@ -2473,6 +2544,7 @@ export function createEditor({
       }
       row.appendChild(wrap);
       el.appendChild(row);
+      if (headings.length) observeToc(headings.map((heading) => heading.id));
       return el;
     }
 
@@ -2605,17 +2677,58 @@ export function createEditor({
     if (block.type === "code") {
       const wrap = document.createElement("div");
       wrap.className = "code-wrap";
+
+      const surface = document.createElement("div");
+      surface.className = "code-surface";
+
+      const preview = document.createElement("pre");
+      preview.className = "code-render";
+      preview.setAttribute("aria-hidden", "true");
+      preview.innerHTML = highlightCode(plainText(block.text), block.language);
+
+      const codeInput = document.createElement("div");
+      codeInput.className = "block__input code-input";
+      codeInput.contentEditable = "true";
+      codeInput.spellcheck = false;
+      codeInput.dataset.placeholder = "// code";
+      codeInput.textContent = plainText(block.text);
+
+      surface.append(preview, codeInput);
+      wrap.appendChild(surface);
+
       const lang = document.createElement("button");
       lang.className = "code-lang";
       lang.type = "button";
-      lang.textContent = block.language || "javascript";
+      lang.dataset.codeAction = "language";
+      lang.textContent = LANGUAGE_LABELS[normalizeLanguage(block.language)] || block.language;
       lang.title = "Change language";
-      wrap.append(lang, input);
+
+      const copy = document.createElement("button");
+      copy.className = "code-copy";
+      copy.type = "button";
+      copy.dataset.codeAction = "copy";
+      copy.textContent = "Copy";
+
+      const wrapToggle = document.createElement("button");
+      wrapToggle.className = "code-wrap-toggle";
+      wrapToggle.type = "button";
+      wrapToggle.dataset.codeAction = "wrap";
+      wrapToggle.textContent = "Wrap";
+      wrapToggle.setAttribute("aria-pressed", String(Boolean(block.wrap)));
+
+      if (block.wrap) wrap.classList.add("is-wrapped");
+
+      const actions = document.createElement("div");
+      actions.className = "code-actions";
+      actions.append(lang, copy, wrapToggle);
+      wrap.appendChild(actions);
+
       row.appendChild(wrap);
-    } else {
-      row.appendChild(input);
+      el.appendChild(row);
+      return el;
     }
 
+    row.appendChild(input);
     el.appendChild(row);
     return el;
   }
@@ -2650,6 +2763,36 @@ export function createEditor({
     if (!hasInlineMath(text)) return;
     input.innerHTML = renderInlineMathHtml(text);
     block.text = input.innerHTML;
+  }
+
+  /* ---------------- toc scroll spy ---------------- */
+  let tocObserver = null;
+
+  function observeToc(headingIds) {
+    tocObserver?.disconnect();
+    if (typeof IntersectionObserver !== "function") return;
+    const seen = new Map();
+
+    tocObserver = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          seen.set(entry.target.dataset.id, entry.isIntersecting ? entry.intersectionRatio : 0);
+        }
+        const current = [...seen.entries()]
+          .filter(([, ratio]) => ratio > 0)
+          .sort((a, b) => b[1] - a[1])[0];
+        const activeId = current?.[0] || headingIds[0];
+        container.querySelectorAll(".toc-link").forEach((link) => {
+          link.classList.toggle("is-current", link.dataset.tocId === activeId);
+        });
+      },
+      { root: container.closest(".page-scroll") || null, threshold: [0.15, 0.5, 1] }
+    );
+
+    for (const id of headingIds) {
+      const heading = elById(id);
+      if (heading) tocObserver.observe(heading);
+    }
   }
 
   /* ---------------- structure edits ---------------- */
@@ -2715,6 +2858,15 @@ export function createEditor({
       block.type = "database";
       ensureDefaults(block, "database");
       block.activeView = DATABASE_VIEW_DEFS[type];
+      save();
+      render();
+      return;
+    }
+    if (type === "database-linked") {
+      const sources = allDatabases().filter((item) => item.id !== block.id);
+      block.type = "database";
+      block.linked = { dbId: sources[0]?.id ?? "" };
+      ensureDefaults(block, "database");
       save();
       render();
       return;
@@ -2790,9 +2942,15 @@ export function createEditor({
   }
 
   /* ---------------- slash menu ---------------- */
-  function openSlash(blockEl, mode, query = "", anchor = null) {
+  function openSlash(blockEl, mode, query = "", anchor = null, targetInput = null) {
     const rect = anchor ?? caretRect() ?? blockEl.getBoundingClientRect();
-    slash = { blockId: blockEl.dataset.id, mode, query, index: 0 };
+    slash = {
+      blockId: blockEl.dataset.id,
+      mode,
+      query,
+      index: 0,
+      target: targetInput || inputOf(blockEl) || blockEl.querySelector(".toggle-body"),
+    };
     renderSlash();
     slashMenu.hidden = false;
     slashMenu.style.left = "0px";
@@ -2823,7 +2981,9 @@ export function createEditor({
       const button = document.createElement("button");
       button.className = `slash-item${index === activeIndex ? " is-active" : ""}`;
       button.dataset.type = item.type;
+      button.id = `slash-item-${index}`;
       button.setAttribute("role", "option");
+      button.setAttribute("aria-selected", String(index === activeIndex));
       button.innerHTML = `
         <span class="slash-item__icon">${escapeHtml(item.icon)}</span>
         <span class="slash-item__text">
@@ -2872,7 +3032,17 @@ export function createEditor({
     }
 
     slashEmpty.hidden = items.length > 0;
-    slashList.querySelector(".is-active")?.scrollIntoView({ block: "nearest" });
+    const active = slashList.querySelector(".is-active");
+    if (active) {
+      slashMenu.setAttribute("aria-activedescendant", active.id);
+      active.scrollIntoView({ block: "nearest" });
+    } else {
+      slashMenu.removeAttribute("aria-activedescendant");
+    }
+  }
+
+  function modeForSlash() {
+    return slash?.mode ?? "transform";
   }
 
   function applySlash(type) {
@@ -2911,6 +3081,16 @@ export function createEditor({
       render();
       return;
     }
+    if (type === "database-linked") {
+      const sources = allDatabases().filter((item) => item.id !== block.id);
+      block.type = "database";
+      block.linked = { dbId: sources[0]?.id ?? "" };
+      ensureDefaults(block, "database");
+      save();
+      render();
+      if (!sources.length) onToast?.("Add another database first, then create a linked view");
+      return;
+    }
     if (type === "page") {
       turnInto(block, type);
       return;
@@ -2935,12 +3115,11 @@ export function createEditor({
     if (!block) return;
 
     const dbPropName = event.target.closest(".db-prop-name");
-    if (dbPropName) {
-      const property = (block.properties || []).find(
-        (item) => item.id === dbPropName.dataset.dbPropName
-      );
+    if (dbPropName && block.type === "database") {
+      const property = databaseProperty(block, dbPropName.dataset.dbProp);
       if (property) {
-        property.name = dbPropName.textContent.trim() || "Untitled";
+        const name = dbPropName.textContent.trim();
+        if (name) property.name = name;
         save();
       }
       return;
@@ -2948,9 +3127,16 @@ export function createEditor({
 
     const dbCell = event.target.closest(".db-cell, .db-card-title");
     if (dbCell) {
-      const row = (block.rows || []).find((item) => item.id === dbCell.dataset.dbRow);
-      if (row) {
-        row.cells[dbCell.dataset.dbProp] = dbCell.textContent;
+      const row = rowById(block, dbCell.dataset.dbRow);
+      const property = databaseProperty(block, dbCell.dataset.dbProp);
+      if (row && property) {
+        if (property.type === "number") {
+          const raw = dbCell.textContent.trim();
+          row.cells[property.id] = raw === "" ? null : Number(raw);
+        } else {
+          row.cells[property.id] = dbCell.textContent;
+        }
+        touchRow(block, row);
         save();
       }
       return;
@@ -2986,6 +3172,16 @@ export function createEditor({
       return;
     }
 
+    const codeInput = event.target.closest(".code-input");
+    if (codeInput && block.type === "code") {
+      const source = codeInput.textContent.replace(/\n$/, "");
+      block.text = escapeHtml(source);
+      const preview = el.querySelector(".code-render");
+      if (preview) preview.innerHTML = highlightCode(source, block.language);
+      save();
+      return;
+    }
+
     const mathInline = event.target.closest(".math-inline");
     if (mathInline) return;
 
@@ -3014,9 +3210,24 @@ export function createEditor({
     block.text = input.innerHTML;
     save();
 
+    if (mention && mention.blockId === block.id) {
+      const query = mentionQueryFor(input.textContent || "");
+      if (query === null) closeMention();
+      else {
+        mention.query = query;
+        renderMention();
+      }
+      return;
+    }
+
     if (slash && slash.blockId === block.id) {
-      const text = input.textContent;
-      if (text.startsWith("/")) {
+      const source = slash.target || input;
+      const text = source?.textContent ?? input.textContent;
+      const index = text.indexOf("/");
+      if (index >= 0 && (modeForSlash() === "transform")) {
+        slash.query = text.slice(index + 1);
+        renderSlash();
+      } else if (text.startsWith("/")) {
         slash.query = text.slice(1);
         renderSlash();
       } else {
@@ -3026,6 +3237,8 @@ export function createEditor({
     }
 
     if (INLINE_MATH_TYPES.has(block.type) && applyInlineMath(input, block)) return;
+
+    if (runQuickCommand(input.textContent, block, input)) return;
 
     if (block.type === "paragraph") {
       const text = input.textContent;
@@ -3065,6 +3278,96 @@ export function createEditor({
       }
     }
   });
+
+  /* ---------------- quick commands ---------------- */
+  const QUICK_COMMANDS = [
+    { match: /^\/today$/i, run: (block) => void (block.type = "date") },
+    {
+      match: /^\/tomorrow$/i,
+      run: (block) => {
+        const date = new Date();
+        date.setDate(date.getDate() + 1);
+        block.type = "date";
+        block.text = isoTodayFrom(date);
+      },
+    },
+    {
+      match: /^\/yesterday$/i,
+      run: (block) => {
+        const date = new Date();
+        date.setDate(date.getDate() - 1);
+        block.type = "date";
+        block.text = isoTodayFrom(date);
+      },
+    },
+    { match: /^\/date$/i, run: (block) => void (block.type = "date") },
+    { match: /^\/todo$/i, run: (block) => void (block.type = "todo") },
+    { match: /^\/check$/i, run: (block) => void (block.type = "todo") },
+    { match: /^\/bulleted?$/i, run: (block) => void (block.type = "bulleted") },
+    { match: /^\/numbered?$/i, run: (block) => void (block.type = "numbered") },
+    { match: /^\/heading$/i, run: (block) => void (block.type = "h2") },
+    { match: /^\/quote$/i, run: (block) => void (block.type = "quote") },
+    { match: /^\/code$/i, run: (block) => void (block.type = "code") },
+    { match: /^\/callout$/i, run: (block) => void (block.type = "callout") },
+    { match: /^\/divider$/i, run: (block) => void (block.type = "divider") },
+    { match: /^\/page$/i, run: (block) => void (block.type = "page") },
+    {
+      match: /^\/button$/i,
+      run: (block) => {
+        block.type = "button";
+        block.label = "Button";
+        block.url = "";
+      },
+    },
+  ];
+
+  function isoTodayFrom(date) {
+    const offset = date.getTimezoneOffset();
+    return new Date(date.getTime() - offset * 60000).toISOString().slice(0, 10);
+  }
+
+  function evaluateMathExpression(expression) {
+    const text = String(expression || "").replace(/[^*/+\-()\d.\s]/g, "");
+    if (!text || !/[+\-*/]/.test(text)) return null;
+    if (!/^[\d\s+\-*/().]+$/.test(text)) return null;
+    try {
+      // eslint-disable-next-line no-new-func
+      const value = Function(`"use strict"; return (${text});`)();
+      if (!Number.isFinite(value)) return null;
+      return Number(value.toFixed(6));
+    } catch {
+      return null;
+    }
+  }
+
+  function runQuickCommand(text, block, input) {
+    const raw = String(text || "").trim();
+
+    if (/^=/.test(raw)) {
+      const result = evaluateMathExpression(raw.slice(1));
+      if (result === null) return false;
+      const next = createBlock("paragraph", escapeHtml(`= ${raw.slice(1)} = ${result}`));
+      const index = page.blocks.indexOf(block);
+      block.text = "";
+      page.blocks.splice(index + 1, 0, next);
+      save();
+      render();
+      focusBlock(next.id, "end");
+      onToast?.(`= ${raw.slice(1)} → ${result}`);
+      return true;
+    }
+
+    const command = QUICK_COMMANDS.find((item) => item.match.test(raw));
+    if (!command) return false;
+    block.text = "";
+    command.run(block);
+    if (block.type === "date") block.text = block.text || isoToday();
+    save();
+    render();
+    if (!block.text) focusBlock(block.id, "start");
+    void input;
+    return true;
+  }
 
   function writeTarget(target, block) {
     if (target.classList.contains("block__input")) block.text = target.innerHTML;
@@ -3150,6 +3453,8 @@ export function createEditor({
     const block = blockById(el.dataset.id);
     if (!block) return;
 
+    if (block.type === "database" && handleDatabaseFieldChange(block, event)) return;
+
     const selectCell = event.target.closest(".db-cell-select");
     if (selectCell) {
       const row = (block.rows || []).find((item) => item.id === selectCell.dataset.dbRow);
@@ -3224,11 +3529,63 @@ export function createEditor({
   });
 
   container.addEventListener("keydown", (event) => {
+    if (event.key === "/" && !event.metaKey && !event.ctrlKey && !event.altKey) {
+      const owner = event.target.closest(".toggle-body, .block-column");
+      if (owner && owner.textContent.trim() === "") {
+        const host = event.target.closest(".block");
+        const hostBlock = blockById(host?.dataset.id);
+        if (hostBlock) {
+          event.preventDefault();
+          closeSlash();
+          setTimeout(() => openSlash(host, "insert-after", "", null, owner), 0);
+          return;
+        }
+      }
+    }
+
     const input = event.target.closest(".block__input");
     if (!input) return;
     const el = input.closest(".block");
     const block = blockById(el.dataset.id);
     if (!block) return;
+
+    if (event.key === "@" && !event.metaKey && !event.ctrlKey && !event.altKey) {
+      const input = event.target;
+      if (input.classList.contains("block__input") || input.classList.contains("toggle-body")) {
+        const caretOffset = caretOffsetIn(input);
+        const before = caretOffset > 0 ? input.textContent.slice(0, caretOffset) : "";
+        if (before === "" || /\s$/.test(before)) {
+          setTimeout(() => openMention(el), 0);
+        }
+      }
+      return;
+    }
+
+    if (mention) {
+      const items = mentionItems();
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        mention.index = (mention.index + 1) % Math.max(1, items.length);
+        renderMention();
+        return;
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        mention.index = (mention.index - 1 + items.length) % Math.max(1, items.length);
+        renderMention();
+        return;
+      }
+      if (event.key === "Enter" || event.key === "Tab") {
+        event.preventDefault();
+        if (items[mention.index]) applyMention(items[mention.index]);
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeMention();
+        return;
+      }
+    }
 
     if (slash) {
       const items = filteredItems();
@@ -3259,7 +3616,7 @@ export function createEditor({
     if (event.key === "/" && !event.metaKey && !event.ctrlKey) {
       if (input.textContent === "") {
         closeSlash();
-        setTimeout(() => openSlash(el, "transform"), 0);
+        setTimeout(() => openSlash(el, "transform", "", null, input), 0);
       }
       return;
     }
@@ -3385,89 +3742,8 @@ export function createEditor({
       }
     }
 
-    const dbAction = event.target.closest("[data-db-action]");
-    if (dbAction && block?.type === "database") {
-      const action = dbAction.dataset.dbAction;
-      if (action === "view") {
-        block.activeView = dbAction.dataset.view;
-        save();
-        render();
-        return;
-      }
-      if (action === "add-row") {
-        block.rows.push(newDatabaseRow(block));
-        save();
-        render();
-        return;
-      }
-      if (action === "add-property") {
-        const name = window.prompt("Property name");
-        if (!name) return;
-        const rawType = (
-          window.prompt("Type: text, number, date, checkbox, select", "text") || "text"
-        )
-          .trim()
-          .toLowerCase();
-        const type = ["text", "number", "date", "checkbox", "select"].includes(rawType)
-          ? rawType
-          : "text";
-        const property = { id: createBlock().id, name: name.trim(), type };
-        if (type === "select") {
-          const rawOptions = window.prompt("Options (comma separated)", "Option 1, Option 2");
-          property.options = (rawOptions || "")
-            .split(",")
-            .map((option) => option.trim())
-            .filter(Boolean);
-          if (!property.options.length) property.options = ["Option 1"];
-        }
-        block.properties.push(property);
-        for (const row of block.rows) {
-          row.cells[property.id] = type === "checkbox" ? false : "";
-        }
-        save();
-        render();
-        return;
-      }
-      if (action === "delete-row") {
-        block.rows = block.rows.filter((row) => row.id !== dbAction.dataset.dbRow);
-        if (!block.rows.length) block.rows.push(newDatabaseRow(block));
-        save();
-        render();
-        return;
-      }
-      if (action === "add-group") {
-        const groupProperty = databaseGroupProperty(block);
-        const value = dbAction.dataset.group ?? "";
-        block.rows.push(
-          newDatabaseRow(block, groupProperty ? { [groupProperty.id]: value } : {})
-        );
-        save();
-        render();
-        return;
-      }
-      if (action === "cal-prev" || action === "cal-next") {
-        const cursor = parseMonthKey(block.calendarMonth);
-        cursor.setMonth(cursor.getMonth() + (action === "cal-next" ? 1 : -1), 1);
-        block.calendarMonth = monthKey(cursor);
-        save();
-        render();
-        return;
-      }
-      if (action === "cal-today") {
-        block.calendarMonth = monthKey(new Date());
-        save();
-        render();
-        return;
-      }
-      if (action === "cal-add") {
-        const dateProperty = databaseDateProperty(block);
-        if (!dateProperty) return;
-        block.rows.push(newDatabaseRow(block, { [dateProperty.id]: dbAction.dataset.date || isoToday() }));
-        save();
-        render();
-        return;
-      }
-    }
+
+    if (block?.type === "database" && handleDatabaseAction(block, event)) return;
 
     const toggle = event.target.closest("[data-toggle]");
     if (toggle && block) {
@@ -3485,6 +3761,22 @@ export function createEditor({
         block.rows.push(new Array(width).fill(""));
       } else if (action === "col") {
         for (const row of block.rows) row.push("");
+      } else if (action === "delete-row") {
+        if ((block.rows || []).length <= 1) {
+          onToast?.("A table needs at least one row");
+          return;
+        }
+        const lastRow = block.rows.length - 1;
+        block.rows.splice(lastRow, 1);
+      } else if (action === "delete-col") {
+        const width = block.rows?.[0]?.length || 0;
+        if (width <= 1) {
+          onToast?.("A table needs at least one column");
+          return;
+        }
+        for (const row of block.rows) row.splice(width - 1, 1);
+      } else if (action === "align-left" || action === "align-center" || action === "align-right") {
+        block.align = action.replace("align-", "");
       } else if (action === "header-row") {
         block.headerRow = block.headerRow === false;
       } else if (action === "header-column") {
@@ -3665,6 +3957,13 @@ export function createEditor({
       }
     }
 
+    const mentionHit = event.target.closest(".mention");
+    if (mentionHit) {
+      const pageId = mentionHit.dataset.pageId;
+      if (pageId) onOpenPage?.(pageId);
+      return;
+    }
+
     const breadcrumbItem = event.target.closest("[data-breadcrumb-id]");
     if (breadcrumbItem) {
       onOpenPage?.(breadcrumbItem.dataset.breadcrumbId);
@@ -3770,17 +4069,60 @@ export function createEditor({
       return;
     }
 
-    if (event.target.closest(".code-lang") && block) {
-      const value = window.prompt("Language", block.language || "javascript");
-      if (value) {
-        block.language = value.trim();
-        event.target.textContent = block.language;
-        save();
+    const codeAction = event.target.closest("[data-code-action]");
+    if (codeAction && block?.type === "code") {
+      const action = codeAction.dataset.codeAction;
+
+      if (action === "language") {
+        closeCodeLanguages();
+        const picker = document.createElement("div");
+        picker.className = "popover code-lang-picker";
+        for (const key of CODE_LANGUAGES) {
+          const option = document.createElement("button");
+          option.type = "button";
+          option.className = "code-lang-option";
+          option.dataset.codeAction = "language-pick";
+          option.dataset.language = key;
+          option.textContent = LANGUAGE_LABELS[key] || key;
+          option.addEventListener("mousedown", (event) => event.preventDefault());
+          option.addEventListener("click", () => {
+            block.language = key;
+            closeCodeLanguages();
+            save();
+            render();
+          });
+          picker.appendChild(option);
+        }
+        codeAction.parentElement.appendChild(picker);
+        return;
       }
-      return;
+
+      if (action === "language-pick") {
+        block.language = codeAction.dataset.language || "plain";
+        closeCodeLanguages();
+        save();
+        render();
+        return;
+      }
+
+      if (action === "copy") {
+        const source = plainText(block.text);
+        navigator.clipboard?.writeText(source).then(
+          () => onToast?.("Code copied"),
+          () => onToast?.("Could not copy to the clipboard")
+        );
+        return;
+      }
+
+      if (action === "wrap") {
+        block.wrap = !block.wrap;
+        save();
+        render();
+        return;
+      }
     }
 
-    if (event.target === el && block) {
+    if (event.target.closest(".todo-check") && block) {
       const input = inputOf(el);
       if (input) focusBlock(block.id, "end");
     }
@@ -3933,8 +4275,60 @@ export function createEditor({
     }
   });
 
+  /* ---------------- table column resize ---------------- */
+  let resizeState = null;
+
+  container.addEventListener("mousedown", (event) => {
+    const resizer = event.target.closest('[data-table-action="resize"]');
+    if (!resizer) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const el = resizer.closest(".block");
+    const block = blockById(el?.dataset.id);
+    const cell = resizer.closest("td, th");
+    if (!block || !cell) return;
+    resizeState = {
+      block,
+      column: Number(resizer.dataset.col),
+      startX: event.clientX,
+      startWidth: cell.getBoundingClientRect().width,
+    };
+  });
+
+  document.addEventListener("mousemove", (event) => {
+    if (!resizeState) return;
+    const width = Math.max(60, resizeState.startWidth + (event.clientX - resizeState.startX));
+    const widths = Array.isArray(resizeState.block.colWidths) ? [...resizeState.block.colWidths] : [];
+    widths[resizeState.column] = Math.round(width);
+    resizeState.block.colWidths = widths;
+    const cell = container.querySelector(
+      `.block[data-id="${CSS.escape(resizeState.block.id)}"] .table-cell[data-col="${resizeState.column}"]`
+    );
+    if (cell) cell.style.width = `${Math.round(width)}px`;
+  });
+
+  document.addEventListener("mouseup", () => {
+    if (!resizeState) return;
+    resizeState = null;
+    save();
+  });
+
   /* ---------------- drag & drop ---------------- */
+  let dbDrag = null;
+
   container.addEventListener("dragstart", (event) => {
+    const rowNode = event.target.closest(".db-row-handle, .db-board-card, .db-gallery-card, .db-list-row, .db-cal-item, .db-timeline-bar");
+    if (rowNode) {
+      const el = rowNode.closest(".block");
+      const block = blockById(el?.dataset.id);
+      if (!block || block.type !== "database") return;
+      dbDrag = { block, rowId: rowNode.dataset.dbRow };
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", rowNode.dataset.dbRow || "");
+      rowNode.classList.add("is-dragging");
+      return;
+    }
+
     const control = event.target.closest('[data-control="menu"]');
     if (!control) return;
     const el = control.closest(".block");
@@ -3945,6 +4339,16 @@ export function createEditor({
   });
 
   container.addEventListener("dragover", (event) => {
+    if (dbDrag) {
+      const dropZone = event.target.closest("[data-db-drop]");
+      if (!dropZone) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "move";
+      container.querySelectorAll(".is-drop-target").forEach((node) => node.classList.remove("is-drop-target"));
+      dropZone.classList.add("is-drop-target");
+      return;
+    }
+
     if (!dragId) return;
     const el = event.target.closest(".block");
     if (!el || el.dataset.id === dragId) return;
@@ -3954,6 +4358,59 @@ export function createEditor({
   });
 
   container.addEventListener("drop", (event) => {
+    if (dbDrag) {
+      const dropZone = event.target.closest("[data-db-drop]");
+      if (!dropZone) return;
+      event.preventDefault();
+      const { block, rowId } = dbDrag;
+      const row = rowById(block, rowId);
+      if (!row) return;
+      const mode = dropZone.dataset.dbDrop;
+
+      if (mode === "group") {
+        if (block.views?.length) {
+          const view = databaseView(block);
+          if (view.type === "calendar") {
+            const dateProperty = (block.properties || []).find((item) => item.type === "date");
+            if (dateProperty && /^\d{4}-\d{2}-\d{2}$/.test(dropZone.dataset.dbGroupValue || "")) {
+              row.cells[dateProperty.id] = dropZone.dataset.dbGroupValue;
+            }
+          } else {
+            const group =
+              databaseProperty(block, block.boardGroupBy) ||
+              (block.properties || []).find(
+                (property) => property.type === "status" || property.type === "select"
+              );
+            if (group) row.cells[group.id] = dropZone.dataset.dbGroupValue ?? "";
+          }
+        }
+      } else if (mode === "row" || mode === "timeline") {
+        const targetRow = rowById(block, dropZone.dataset.dbRow);
+        if (targetRow && targetRow.id !== row.id) {
+          const order = (block.rows || []).filter((item) => item.id !== row.id);
+          const at = order.findIndex((item) => item.id === targetRow.id);
+          order.splice(Math.max(0, at), 0, row);
+          block.rows = order;
+        } else {
+          const index = Number(dropZone.dataset.dbIndex);
+          const order = (block.rows || []).filter((item) => item.id !== row.id);
+          if (Number.isFinite(index)) order.splice(Math.min(index, order.length), 0, row);
+          block.rows = order;
+        }
+      } else {
+        return;
+      }
+
+      dbDrag = null;
+      container.querySelectorAll(".is-drop-target, .is-dragging").forEach((node) =>
+        node.classList.remove("is-drop-target", "is-dragging")
+      );
+      touchRow(block, row);
+      save();
+      render();
+      return;
+    }
+
     if (!dragId) return;
     const targetEl = event.target.closest(".block");
     if (!targetEl) return;
@@ -3975,6 +4432,7 @@ export function createEditor({
 
   container.addEventListener("dragend", () => {
     dragId = null;
+    dbDrag = null;
     container.querySelectorAll(".is-dragging, .is-drop-target").forEach((node) =>
       node.classList.remove("is-dragging", "is-drop-target")
     );
@@ -4019,9 +4477,96 @@ export function createEditor({
 
   inlineToolbar.addEventListener("mousedown", (event) => event.preventDefault());
 
+  const INLINE_HIGHLIGHTS = ["yellow", "green", "blue", "pink", "orange", "red"];
+  let inlineHighlight = "yellow";
+  let inlineTextColor = "";
+
+  function renderInlineColorPanel(mode) {
+    const panel = document.getElementById("inline-color-panel");
+    if (!panel) return;
+    panel.hidden = false;
+    panel.dataset.mode = mode;
+    panel.innerHTML = INLINE_HIGHLIGHTS.map(
+      (color) =>
+        `<button type="button" class="popover__swatch" data-inline-color="${color}" title="${color}" style="--swatch:${
+          BLOCK_COLORS.find((entry) => entry.id === color)?.swatch || "#ccc"
+        }"></button>`
+    ).join("");
+  }
+
+  function closeInlineColorPanel() {
+    const panel = document.getElementById("inline-color-panel");
+    if (panel) panel.hidden = true;
+  }
+
   inlineToolbar.addEventListener("click", (event) => {
+    const colorButton = event.target.closest("[data-inline-color]");
+    if (colorButton) {
+      event.preventDefault();
+      const mode = document.getElementById("inline-color-panel")?.dataset.mode;
+      const value = colorButton.dataset.inlineColor;
+      const sel = window.getSelection();
+      if (savedRange && sel) {
+        sel.removeAllRanges();
+        sel.addRange(savedRange);
+      }
+      const text = sel?.toString() || "";
+      if (!text) {
+        closeInlineColorPanel();
+        inlineToolbar.hidden = true;
+        return;
+      }
+      if (mode === "highlight") {
+        inlineHighlight = value;
+        document.execCommand(
+          "insertHTML",
+          false,
+          `<mark class="hl-${value}" data-highlight="${value}">${escapeHtml(text)}</mark>&nbsp;`
+        );
+      } else {
+        inlineTextColor = value;
+        const swatch = BLOCK_COLORS.find((entry) => entry.id === value)?.swatch || "";
+        document.execCommand(
+          "insertHTML",
+          false,
+          `<span class="text-color" data-text-color="${value}" style="color:${escapeHtml(
+            swatch
+          )}">${escapeHtml(text)}</span>&nbsp;`
+        );
+      }
+      const block = blockById(toolbarBlockId);
+      const input = block ? inputOf(elById(toolbarBlockId)) : null;
+      if (block && input) {
+        block.text = input.innerHTML;
+        save();
+      }
+      closeInlineColorPanel();
+      inlineToolbar.hidden = true;
+      return;
+    }
+
     const format = event.target.closest("[data-format]")?.dataset.format;
     if (!format) return;
+
+    if (format === "highlight" || format === "color") {
+      event.preventDefault();
+      renderInlineColorPanel(format === "highlight" ? "highlight" : "color");
+      return;
+    }
+
+    if (format === "mention") {
+      event.preventDefault();
+      const block = blockById(toolbarBlockId);
+      const blockEl = elById(toolbarBlockId);
+      if (!block || !blockEl) return;
+      document.execCommand("insertText", false, "@");
+      block.text = inputOf(blockEl)?.innerHTML ?? block.text;
+      save();
+      closeSlash();
+      closeMention();
+      openMention(blockEl);
+      return;
+    }
     const sel = window.getSelection();
     if (savedRange && sel) {
       sel.removeAllRanges();
@@ -4077,6 +4622,10 @@ export function createEditor({
 
   /* ---------------- public api ---------------- */
   document.addEventListener("mousedown", (event) => {
+    if (!event.target.closest(".inline-toolbar")) closeInlineColorPanel();
+  });
+
+  document.addEventListener("mousedown", (event) => {
     if (slashMenu.hidden) return;
     if (slashMenu.contains(event.target)) return;
     if (event.target.closest(".block__control")) return;
@@ -4088,21 +4637,37 @@ export function createEditor({
     closeSlash();
   });
 
+  document.addEventListener("mousedown", (event) => {
+    if (mentionMenu.hidden) return;
+    if (mentionMenu.contains(event.target)) return;
+    const input = event.target.closest(".block__input, .toggle-body");
+    if (input && mention && input.closest(".block")?.dataset.id === mention.blockId) return;
+    closeMention();
+  });
+
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
       closeSlash();
+      closeMention();
+      closeInlineColorPanel();
+      closeCodeLanguages();
+      closeDatabasePanels();
       blockMenu.hidden = true;
       inlineToolbar.hidden = true;
     }
   });
 
-  window.addEventListener("resize", closeSlash);
+  window.addEventListener("resize", () => {
+    closeSlash();
+    closeMention();
+  });
 
   return {
     render,
     focusBlock,
     scrollToBlock,
     applyCommentHighlights,
+    closeMention,
     get activeId() {
       return activeBlockId;
     },

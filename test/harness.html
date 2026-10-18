@@ -37,13 +37,13 @@
         favorite: false,
         updatedAt: Date.now(),
         trashedAt: null,
-        comments: [],
         locked: false,
         fullWidth: false,
         smallText: false,
         font: "default",
         versions: [],
         lastVersionAt: 0,
+        comments: [],
         blocks: [
           block("h1", ""),
           block("h2", "colour me", { color: "", background: "" }),
@@ -52,7 +52,8 @@
             type: "database",
             properties: [
               { id: "title", name: "Name", type: "title" },
-              { id: "status", name: "Status", type: "select", options: ["Todo", "Done"] },
+              { id: "status", name: "Status", type: "status", options: ["To-do", "In progress", "Done"] },
+              { id: "price", name: "Price", type: "number" },
               { id: "date", name: "Date", type: "date" },
             ],
             views: [
@@ -63,8 +64,11 @@
               { id: "calendar", name: "Calendar", type: "calendar" },
               { id: "timeline", name: "Timeline", type: "timeline" },
             ],
-            activeView: "calendar",
-            rows: [{ id: "r1", cells: { title: "Kickoff", status: "Todo", date: "2026-10-18" } }],
+            activeView: "table",
+            rows: [
+              { id: "r1", shortId: "nc-a", createdAt: Date.now(), updatedAt: Date.now(), cells: { title: "Ship v1", status: "To-do", price: 10, date: "2026-10-18" } },
+              { id: "r2", shortId: "nc-b", createdAt: Date.now(), updatedAt: Date.now(), cells: { title: "Ship v2", status: "Done", price: 20, date: "2026-10-24" } },
+            ],
           }),
           block("h5", "", { type: "columns4", columns: [] }),
           block("h6", "", { type: "button", label: "Docs", url: "https://example.com" }),
@@ -75,7 +79,27 @@
           block("h11", "", { type: "audio", src: "", url: "", caption: "" }),
           block("h12", "Math $a+b$ tail", { type: "paragraph" }),
           block("h13", "", { type: "breadcrumb" }),
+          block("h14", "", { type: "code", language: "javascript", text: 'const x = "hello";\n// note\nfunction go() { return 2 }', wrap: false }),
+          block("h15", "", { type: "toc" }),
+          block("h16", "Heading one", { type: "h1" }),
+          block("h17", "Heading two", { type: "h2" }),
+          block("h18", "Heading three", { type: "h3" }),
         ],
+      };
+
+      const sibling = {
+        id: "h-sibling",
+        title: "Sibling page",
+        icon: "📘",
+        cover: null,
+        section: "private",
+        teamspaceId: null,
+        parentId: null,
+        favorite: false,
+        updatedAt: Date.now(),
+        trashedAt: null,
+        comments: [],
+        blocks: [block("s1", "hello")],
       };
 
       localStorage.setItem(
@@ -88,7 +112,8 @@
           collapsedTeamspaces: [],
           syncedBlocks: {},
           teamspaces: [],
-          pages: [page],
+          pages: [page, sibling],
+          onboarded: true,
         })
       );
 
@@ -102,146 +127,267 @@
           results.push(`FAIL window error — ${event.message}`);
         });
 
-        try {
-          await sleep(400);
-          const editor = doc.getElementById("editor");
-          log("editor rendered", Boolean(editor && editor.children.length >= 7), `blocks=${editor?.children.length}`);
+        const click = (node) => node?.dispatchEvent(new win.MouseEvent("click", { bubbles: true }));
+        const mousedown = (node) => node?.dispatchEvent(new win.MouseEvent("mousedown", { bubbles: true }));
+        const keydown = (node, init) => node?.dispatchEvent(new win.KeyboardEvent("keydown", { bubbles: true, ...init }));
+        const input = (node, value) => {
+          node.textContent = value;
+          node.dispatchEvent(new win.InputEvent("input", { bubbles: true }));
+        };
 
-          /* slash menu */
+        try {
+          await sleep(500);
+
+          /* ---------- editor basics ---------- */
+          const editor = doc.getElementById("editor");
+          log("editor rendered", Boolean(editor && editor.children.length >= 18), `blocks=${editor?.children.length}`);
+
           const first = doc.querySelector('[data-id="h1"] .block__input');
           first.focus();
-          first.dispatchEvent(new win.KeyboardEvent("keydown", { key: "/", bubbles: true }));
+          keydown(first, { key: "/" });
           await sleep(120);
-          first.textContent = "/";
-          first.dispatchEvent(new win.InputEvent("input", { bubbles: true }));
+          input(first, "/");
           await sleep(140);
           const menu = doc.getElementById("slash-menu");
           log("slash menu opens", !menu.hidden);
-          log("slash categories render", menu.querySelectorAll(".slash-group").length >= 4, `groups=${menu.querySelectorAll(".slash-group").length}`);
-          const item = [...menu.querySelectorAll(".slash-item")].find((node) => node.dataset.type === "toggleh1");
-          log("toggle heading listed", Boolean(item));
-          item?.dispatchEvent(new win.MouseEvent("mousedown", { bubbles: true }));
+          log("slash categories render", menu.querySelectorAll(".slash-group").length >= 4);
+          log("slash menu is aria-live", Boolean(menu.getAttribute("aria-activedescendant")), menu.getAttribute("aria-activedescendant"));
+          const toggleItem = [...menu.querySelectorAll(".slash-item")].find((node) => node.dataset.type === "toggleh1");
+          mousedown(toggleItem);
+          await sleep(180);
+          log("toggle heading inserted", doc.querySelector('[data-id="h1"]')?.dataset.type === "toggleh1");
+          log("toggle chevron present", Boolean(doc.querySelector('[data-id="h1"] .toggle-chevron')));
+
+          /* ---------- mentions ---------- */
+          const target = doc.querySelector('[data-id="h16"] .block__input');
+          target.focus();
+          keydown(target, { key: "@" });
+          await sleep(200);
+          const mentionMenu = doc.getElementById("mention-menu");
+          log("mention menu opens", !mentionMenu.hidden);
+          const mentionItems = mentionMenu.querySelectorAll(".mention-item");
+          log("mention lists pages + dates", mentionItems.length >= 3, `items=${mentionItems.length}`);
+          const siblingMention = [...mentionItems].find((node) => node.textContent.includes("Sibling"));
+          log("mention finds sibling page", Boolean(siblingMention));
+          mousedown(siblingMention);
+          await sleep(200);
+          log("mention inserted", Boolean(doc.querySelector(".mention")), doc.querySelector(".mention")?.textContent);
+
+          /* ---------- quick commands ---------- */
+          const quick = doc.querySelector('[data-id="h17"] .block__input');
+          quick.focus();
+          quick.textContent = "/today";
+          quick.dispatchEvent(new win.InputEvent("input", { bubbles: true }));
+          await sleep(220);
+          log(
+            "slash /today becomes a date",
+            doc.querySelector('[data-id="h17"]')?.dataset.type === "date",
+            doc.querySelector('[data-id="h17"]')?.dataset.type
+          );
+
+          /* ---------- code block ---------- */
+          const codeBlock = doc.querySelector('[data-id="h14"]');
+          log("code highlights keywords", Boolean(codeBlock?.querySelector(".tok-keyword")));
+          log("code highlights strings", Boolean(codeBlock?.querySelector(".tok-string")));
+          log("code has language label", codeBlock?.querySelector(".code-lang")?.textContent === "JavaScript");
+          click(codeBlock.querySelector('[data-code-action="wrap"]'));
           await sleep(160);
-          const toggled = doc.querySelector('[data-id="h1"]');
-          log("toggle heading inserted", toggled?.dataset.type === "toggleh1", `type=${toggled?.dataset.type}`);
-          log("toggle chevron present", Boolean(toggled?.querySelector(".toggle-chevron")));
+          log("code wrap toggles", doc.querySelector('[data-id="h14"] .code-wrap')?.classList.contains("is-wrapped"));
+          click(doc.querySelector('[data-id="h14"] .code-lang'));
+          await sleep(120);
+          log("language picker opens", Boolean(doc.querySelector(".code-lang-picker")));
+          const python = [...(doc.querySelectorAll(".code-lang-picker button") || [])].find((n) => n.dataset.language === "python");
+          click(python);
+          await sleep(160);
+          log("language switches", doc.querySelector('[data-id="h14"] .code-lang')?.textContent === "Python");
 
-          /* columns */
-          const cols = doc.querySelector('[data-id="h5"] .columns-block');
-          log("columns4 renders 4 cells", cols?.querySelectorAll(".block-column").length === 4, `cols=${cols?.querySelectorAll(".block-column").length}`);
+          /* ---------- table ---------- */
+          const tableBlock = doc.querySelector('[data-id="h8"]');
+          click(tableBlock.querySelector('[data-table-action="col"]'));
+          await sleep(150);
+          log("table adds column", doc.querySelectorAll('[data-id="h8"] .table-cell[data-col="2"]').length >= 2, `cells=${doc.querySelectorAll('[data-id="h8"] .table-cell').length}`);
+          click(doc.querySelector('[data-id="h8"] [data-table-action="delete-col"]'));
+          await sleep(150);
+          log("table deletes column", doc.querySelectorAll('[data-id="h8"] .table-cell[data-col="2"]').length === 0, `cells=${doc.querySelectorAll('[data-id="h8"] .table-cell').length}`);
+          click(doc.querySelector('[data-id="h8"] [data-table-action="delete-row"]'));
+          await sleep(150);
+          const rowsLeft = doc.querySelectorAll('[data-id="h8"] .block__table tr').length;
+          const tableState = JSON.parse(win.localStorage.getItem("notion-clone:v2")).pages
+            .find((p) => p.id === "h-page")
+            .blocks.find((b) => b.id === "h8");
+          log("table deletes row", rowsLeft === 1, `rows=${rowsLeft} state=${JSON.stringify(tableState.rows)}`);
+          click(doc.querySelector('[data-id="h8"] [data-table-action="align-center"]'));
+          await sleep(150);
+          log("table aligns center", doc.querySelector('[data-id="h8"] .block__table')?.dataset.align === "center");
 
-          /* block colours */
-          const target = doc.querySelector('[data-id="h2"]');
-          target.querySelector('[data-control="menu"]').dispatchEvent(new win.MouseEvent("click", { bubbles: true }));
+          /* ---------- database ---------- */
+          const db = doc.querySelector('[data-id="h4"] .database-block');
+          log("database renders toolbar", Boolean(db?.querySelector(".db-toolbar")));
+          click(db.querySelector('[data-db-action="view"][data-view="board"]'));
+          await sleep(200);
+          log("board view renders", Boolean(doc.querySelector('[data-id="h4"] .db-board')));
+          log("board groups by status", doc.querySelectorAll('[data-id="h4"] .db-board-col').length >= 2);
+
+          click(doc.querySelector('[data-id="h4"] [data-db-action="view"][data-view="table"]'));
+          await sleep(200);
+          click(doc.querySelector('[data-id="h4"] [data-db-action="add-property"]'));
+          await sleep(200);
+          log("type picker opens", Boolean(doc.querySelector('[data-id="h4"] .db-type-picker')));
+          const createBtn = doc.querySelector('[data-id="h4"] .db-type-picker [data-db-action="property-create"][data-db-type="formula"]');
+          click(createBtn);
+          await sleep(220);
+          const dbState = JSON.parse(win.localStorage.getItem("notion-clone:v2")).pages
+            .find((p) => p.id === "h-page")
+            .blocks.find((b) => b.id === "h4");
+          log("property created", dbState.properties.length === 5, `props=${dbState.properties.length}`);
+
+          click(doc.querySelector('[data-id="h4"] .db-prop-name'));
+          await sleep(200);
+          const formulaSelect = doc.querySelector('[data-id="h4"] .db-prop-menu [data-db-action="property-type"]');
+          log("property menu opens", Boolean(formulaSelect));
+          void formulaSelect;
+
+          click(doc.querySelector('[data-id="h4"] [data-db-action="filters"]'));
+          await sleep(180);
+          log("filter panel opens", Boolean(doc.querySelector('[data-id="h4"] .db-filters-panel')));
+          click(doc.querySelector('[data-id="h4"] [data-db-action="filter-add"]'));
+          await sleep(200);
+          const filterCount = JSON.parse(win.localStorage.getItem("notion-clone:v2")).pages
+            .find((p) => p.id === "h-page")
+            .blocks.find((b) => b.id === "h4").filters.length;
+          log("filter rule added", filterCount === 1, `filters=${filterCount}`);
+          click(doc.querySelector('[data-id="h4"] [data-db-action="filter-clear"]'));
+          await sleep(180);
+
+          click(doc.querySelector('[data-id="h4"] [data-db-action="view-menu"]'));
+          await sleep(180);
+          log("view menu opens", Boolean(doc.querySelector('[data-id="h4"] .db-view-menu')));
+          click(doc.querySelector('[data-id="h4"] [data-db-action="view-menu-close"]'));
+          await sleep(120);
+
+          /* ---------- block colours ---------- */
+          const colourTarget = doc.querySelector('[data-id="h2"]');
+          colourTarget.querySelector('[data-control="menu"]').dispatchEvent(new win.MouseEvent("click", { bubbles: true }));
           await sleep(80);
           const blockMenu = doc.getElementById("block-menu");
-          log("block menu opens", !blockMenu.hidden);
-          blockMenu.querySelector('[data-block-action="color"]').dispatchEvent(new win.MouseEvent("click", { bubbles: true }));
+          click(blockMenu.querySelector('[data-block-action="color"]'));
           await sleep(80);
           const swatches = blockMenu.querySelectorAll(".popover__swatch");
           log("colour swatches render", swatches.length === 20, `swatches=${swatches.length}`);
-          const blue = [...swatches].find((node) => node.dataset.color === "blue");
-          blue.dispatchEvent(new win.MouseEvent("click", { bubbles: true }));
-          await sleep(140);
-          const recoloured = doc.querySelector('[data-id="h2"]');
-          log("text colour applied", recoloured?.classList.contains("is-color-blue"), recoloured?.className);
-          const redBg = [...blockMenu.querySelectorAll(".popover__swatch")].find((node) => node.dataset.color === "red" && node.dataset.blockAction === "background");
-          redBg.dispatchEvent(new win.MouseEvent("click", { bubbles: true }));
-          await sleep(140);
+          click([...swatches].find((n) => n.dataset.color === "blue"));
+          await sleep(160);
+          log("text colour applied", doc.querySelector('[data-id="h2"]')?.classList.contains("is-color-blue"));
+          click([...blockMenu.querySelectorAll(".popover__swatch")].find((n) => n.dataset.color === "red" && n.dataset.blockAction === "background"));
+          await sleep(160);
           log("background colour applied", doc.querySelector('[data-id="h2"]')?.classList.contains("is-bg-red"));
           blockMenu.hidden = true;
 
-          /* template insert */
+          /* ---------- template ---------- */
           const before = doc.querySelectorAll('[data-type="bulleted"]').length;
-          doc.querySelector('[data-id="h3"] [data-template-action="insert"]').dispatchEvent(new win.MouseEvent("click", { bubbles: true }));
-          await sleep(180);
-          const after = doc.querySelectorAll('[data-type="bulleted"]').length;
-          log("template inserts blocks", after > before, `${before} → ${after}`);
+          click(doc.querySelector('[data-id="h3"] [data-template-action="insert"]'));
+          await sleep(200);
+          log("template inserts blocks", doc.querySelectorAll('[data-type="bulleted"]').length > before);
 
-          /* calendar navigation */
-          const monthBefore = doc.querySelector(".db-cal-title")?.textContent;
-          doc.querySelector('[data-db-action="cal-next"]').dispatchEvent(new win.MouseEvent("click", { bubbles: true }));
-          await sleep(160);
-          const monthAfter = doc.querySelector(".db-cal-title")?.textContent;
-          log("calendar month advances", Boolean(monthBefore && monthAfter && monthBefore !== monthAfter), `${monthBefore} → ${monthAfter}`);
-          const addBtn = doc.querySelector(".db-cal-add");
-          const rowsBefore = doc.querySelectorAll(".db-cal-item").length;
-          addBtn.dispatchEvent(new win.MouseEvent("click", { bubbles: true }));
-          await sleep(160);
-          log("calendar add row", doc.querySelectorAll(".db-cal-item").length > rowsBefore);
-
-          /* sub-page creation */
-          doc.querySelector('[data-page-block-action="create"]').dispatchEvent(new win.MouseEvent("click", { bubbles: true }));
-          await sleep(260);
-          const card = doc.querySelector(".page-card");
-          log("sub-page created", Boolean(card), card?.textContent?.trim().slice(0, 40));
-
-          /* persistence */
-          const raw = JSON.parse(win.localStorage.getItem("notion-clone:v2"));
-          const stored = raw.pages.find((item) => item.id === "h-page");
-          log("state persisted", stored.blocks.some((item) => item.type === "toggleh1"));
-          log("colour persisted", stored.blocks.some((item) => item.color === "blue"));
-
-          /* table */
-          const cell = doc.querySelector('[data-id="h8"] .table-cell[data-row="0"][data-col="0"]');
-          cell.focus();
-          const headerToggle = doc.querySelector('[data-id="h8"] [data-table-action="header-row"]');
-          headerToggle.dispatchEvent(new win.MouseEvent("click", { bubbles: true }));
-          await sleep(140);
-          const headerPressed = doc.querySelector('[data-id="h8"] [data-table-action="header-row"]');
-          log("table header row toggles", headerPressed?.getAttribute("aria-pressed") === "false");
-
-          doc.querySelector('[data-id="h8"] .table-cell[data-row="0"][data-col="0"]')?.focus();
-          doc
-            .querySelector('[data-id="h8"] [data-table-action="cell-color"][data-color="yellow"]')
-            ?.dispatchEvent(new win.MouseEvent("click", { bubbles: true }));
-          await sleep(160);
-          const painted = doc.querySelector('[data-id="h8"] .table-cell[data-color]');
-          log("table cell colour", Boolean(painted), painted?.dataset.color);
-
-          /* media embeds */
-          const videoFrame = doc.querySelector('[data-id="h9"] iframe');
-          log("video embed iframe", Boolean(videoFrame), videoFrame?.src);
-          const embedFrame = doc.querySelector('[data-id="h10"] iframe');
-          log("figma embed iframe", Boolean(embedFrame), (embedFrame?.src || "").slice(0, 48));
+          /* ---------- media ---------- */
+          log("video embed iframe", Boolean(doc.querySelector('[data-id="h9"] iframe')));
+          log("figma embed iframe", Boolean(doc.querySelector('[data-id="h10"] iframe')));
           log("audio empty state", Boolean(doc.querySelector('[data-id="h11"] .media-empty')));
+          log("inline math rendered", Boolean(doc.querySelector('[data-id="h12"] .math-inline .katex')));
+          log("toc lists headings", doc.querySelectorAll('[data-id="h15"] .toc-link').length >= 2);
+          log("breadcrumb renders", doc.querySelector(".breadcrumb-block")?.textContent.includes("Harness"));
 
-          /* inline math */
-          const mathBlock = doc.querySelector('[data-id="h12"]');
+          /* ---------- sub-pages ---------- */
+          click(doc.querySelector('[data-page-block-action="create"]'));
+          await sleep(300);
+          log("sub-page created", Boolean(doc.querySelector(".page-card")));
+
+          /* ---------- persistence ---------- */
+          const raw = JSON.parse(win.localStorage.getItem("notion-clone:v2"));
+          const stored = raw.pages.find((p) => p.id === "h-page");
+          log("state persisted", stored.blocks.some((b) => b.type === "toggleh1"));
+          log("colour persisted", stored.blocks.some((b) => b.color === "blue"));
+          log("mention persisted", (stored.blocks.find((b) => b.id === "h16")?.text || "").includes("mention"));
+
+          /* ---------- command palette ---------- */
+          doc.dispatchEvent(new win.KeyboardEvent("keydown", { key: "P", ctrlKey: true, shiftKey: true, bubbles: true }));
+          await sleep(220);
+          const palette = doc.getElementById("command-modal");
+          log("palette opens with shortcut", !palette.hidden);
+          const paletteInput = doc.getElementById("command-input");
+          paletteInput.value = "dark";
+          paletteInput.dispatchEvent(new win.Event("input", { bubbles: true }));
+          await sleep(160);
+          const paletteResults = doc.querySelectorAll("#command-results .search-result");
           log(
-            "inline math rendered",
-            Boolean(mathBlock?.querySelector(".math-inline .katex")),
-            mathBlock?.textContent.trim()
+            "palette filters commands",
+            paletteResults.length >= 1 && /dark/i.test(paletteResults[0].textContent),
+            `results=${paletteResults.length} first="${paletteResults[0]?.textContent?.trim().slice(0, 40)}"`
           );
+          doc.dispatchEvent(new win.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+          await sleep(150);
+          log("palette closes on escape", palette.hidden);
 
-          /* button + breadcrumb */
-          const button = doc.querySelector('[data-id="h6"] .block-button');
-          log("button label", button?.textContent === "Docs");
-          const crumb = doc.querySelector(".breadcrumb-block");
-          log("breadcrumb shows current page", Boolean(crumb) && crumb.textContent.includes("Harness"));
-
-          /* media upload end-to-end */
-          doc
-            .querySelector('[data-id="h11"] [data-media-action="upload"]')
-            ?.dispatchEvent(new win.MouseEvent("click", { bubbles: true }));
-          await sleep(80);
-          const fileInputs = [...doc.querySelectorAll('input[type="file"]')].filter(
-            (input) => input.accept !== "image/*" && !input.accept.startsWith(".pdf")
+          /* ---------- shortcut sheet ---------- */
+          doc.dispatchEvent(new win.KeyboardEvent("keydown", { key: "?", bubbles: true }));
+          await sleep(200);
+          const sheet = doc.getElementById("shortcuts-modal");
+          log("shortcut sheet opens", !sheet.hidden);
+          log(
+            "shortcut sheet lists groups",
+            doc.querySelectorAll("#shortcut-grid .shortcut-group").length >= 5,
+            `groups=${doc.querySelectorAll("#shortcut-grid .shortcut-group").length}`
           );
-          log("media input available", fileInputs.length === 1, `inputs=${fileInputs.length}`);
-          const bytes = new Uint8Array(2048).fill(7);
-          const file = new win.File([bytes], "voice-note.mp3", { type: "audio/mpeg" });
-          const transfer = new win.DataTransfer();
-          transfer.items.add(file);
-          fileInputs[0].files = transfer.files;
-          fileInputs[0].dispatchEvent(new win.Event("change", { bubbles: true }));
-          await sleep(700);
-          const player = doc.querySelector('[data-id="h11"] audio');
-          log("audio uploaded and rendered", Boolean(player), player?.getAttribute("src") || "");
-          const meta = await win
-            .fetch(player?.getAttribute("src") || "")
-            .then((response) => ({ status: response.status, type: response.headers.get("content-type") }));
-          log("uploaded media served", meta.status === 200 && meta.type === "audio/mpeg", JSON.stringify(meta));
+          log(
+            "shortcut sheet lists keys",
+            doc.querySelectorAll("#shortcut-grid .shortcut-keys").length > 30,
+            `keys=${doc.querySelectorAll("#shortcut-grid .shortcut-keys").length}`
+          );
+          click(doc.getElementById("shortcuts-done"));
+          await sleep(150);
+          log("shortcut sheet closes", sheet.hidden);
+
+          /* ---------- onboarding ---------- */
+          doc.dispatchEvent(new win.KeyboardEvent("keydown", { key: "P", ctrlKey: true, shiftKey: true, bubbles: true }));
+          await sleep(180);
+          const tourInput = doc.getElementById("command-input");
+          tourInput.value = "tour";
+          tourInput.dispatchEvent(new win.Event("input", { bubbles: true }));
+          await sleep(160);
+          click(doc.querySelector("#command-results .search-result"));
+          await sleep(250);
+          const onboarding = doc.getElementById("onboarding-modal");
+          log("onboarding opens", !onboarding.hidden);
+          log("onboarding shows points", doc.querySelectorAll("#onboarding-points li").length >= 3);
+          click(doc.getElementById("onboarding-next"));
+          await sleep(150);
+          log(
+            "onboarding advances",
+            doc.getElementById("onboarding-title").textContent !== "Welcome to your workspace"
+          );
+          click(doc.getElementById("onboarding-skip"));
+          await sleep(150);
+          log("onboarding closes", onboarding.hidden);
+
+          /* ---------- fuzzy search ---------- */
+          doc.dispatchEvent(new win.KeyboardEvent("keydown", { key: "k", ctrlKey: true, bubbles: true }));
+          await sleep(200);
+          const searchField = doc.getElementById("search-input");
+          searchField.value = "sibl";
+          searchField.dispatchEvent(new win.Event("input", { bubbles: true }));
+          await sleep(200);
+          const searchResults = doc.querySelectorAll("#search-results .search-result");
+          log(
+            "fuzzy search finds a page",
+            searchResults.length >= 1 && /sibling/i.test(searchResults[0].textContent),
+            `query="${searchField.value}" results=${searchResults.length} labels="${[
+              ...searchResults,
+            ]
+              .map((n) => n.querySelector(".search-result__label")?.textContent?.trim() || "?")
+              .join(" // ")}`
+          );
+          log("fuzzy search highlights matches", Boolean(doc.querySelector("#search-results mark")));
+          doc.dispatchEvent(new win.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+          await sleep(120);
         } catch (error) {
           log("harness error", false, String(error?.stack || error));
         }

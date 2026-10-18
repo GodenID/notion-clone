@@ -38,17 +38,25 @@
 
 ## ✨ Features (current prototype)
 
-### Block library — 42 insertable blocks, grouped like Notion
+### Command system — everything is reachable without the mouse
+
+- ⌨️ **Command palette** (`Mod+Shift+P`) with fuzzy search over 24 commands: navigate, create, view, edit, workspace
+- 📖 **Shortcut sheet** (`?` or `Mod+/`) with every binding, grouped into Global / Editor / Markdown / Database / Blocks
+- 🎓 **First-run onboarding tour**: 4 steps covering storage, blocks, databases, and shortcuts — replayable from the palette
+- 🔍 **Fuzzy search** (`Mod+K`) over pages, teamspaces, and trash, with match highlighting
+- 🧭 Every global binding is registered in one place (`src/app/commands.js`) and enforced by a single matcher
+
+### Block library — 43 insertable blocks, grouped like Notion
 
 **Basic** — Text, Heading 1–3, **Toggle heading 1–3**, bulleted / numbered / to-do / toggle list, quote, callout, divider, **breadcrumb**
 
 **Media** — Image, **Video** (upload or YouTube / Vimeo / Loom), **Audio** (upload or URL), **File** (any type, 25 MB), **Embed** (Figma, CodePen, Google Maps, Loom, Spotify, SoundCloud, Miro, Airtable, Gist, Replit), Attachment (PDF/Word/CSV/Excel with server verification), Bookmark, Code, Equation
 
-**Database** — Table, **Table / Board / Gallery / List / Calendar / Timeline views**
+**Database** — Simple table, **Table / Board / Gallery / List / Calendar / Timeline views**, **Linked database**
 
 **Advanced** — Link to page, **Page (sub-page)**, Synced block, **Button**, **Template button**, 2 / **3 / 4 / 5** columns, Table of contents, Date
 
-Plus **block text + background colors**, **inline `$equation$`**, table header row/column toggles and per-cell colors.
+Plus **block text + background colors**, **inline `$equation$`**, table header row/column toggles, per-cell colors, column resize, and alignment.
 
 ### Workspace
 - 🔐 Mock login (name + email stored in `localStorage`, demo account included)
@@ -58,29 +66,39 @@ Plus **block text + background colors**, **inline `$equation$`**, table header r
 - 📄 **Private pages** with unlimited nesting
 - ⭐ Favorites, rename, duplicate, export to Markdown, soft delete
 - 🗑️ **Trash** with restore / permanent delete / empty trash
-- 🔍 Search across pages, teamspaces, and page content (`Ctrl/Cmd+K`)
+- 🔍 Fuzzy search across pages, teamspaces, page content, and trash (`Ctrl/Cmd+K`)
 
 ### Editor
-- 🧱 42 block types across four menu categories, see the block library above
-- ⌨️ `/` block menu with category headers and fuzzy filtering, Markdown shortcuts, split/merge/indent/outdent, drag-and-drop
+- 🧱 43 block types across four menu categories, see the block library above
+- ⌨️ `/` block menu with category headers, fuzzy filtering, and full keyboard + `aria-activedescendant` support — also opens inside toggles and columns
+- 💬 **Inline mentions**: type `@` to link any page or drop in today / tomorrow
+- 🧮 **Quick math**: type `= 12*3` and the block turns into the result
 - 🎨 Block text + background colors (9 hues, light/dark aware) from the block menu
+- 🖍️ Selection toolbar: bold, italic, underline, strikethrough, inline code, **highlight**, **text color**, link, **mention**, comment
 - ➗ Inline equations: type `$x^2$` inside any text block and it renders as KaTeX
-- 🎨 Selection toolbar: bold, italic, underline, strikethrough, inline code, link, **comment**
-- 🖼️ Image upload (< 800 KB) or by URL; YouTube/Vimeo embeds; link-card bookmarks
-- 📎 Attachments: PDF, Word, CSV, Excel (≤ 20 MB) with server-side validation & SHA-256 checksum
-- 📋 Sanitized paste, multi-line text → blocks
+- 💻 **Code blocks** with syntax highlighting (15 languages), copy button, and a wrap toggle
+- 📋 Sanitized paste, multi-line text → blocks, Markdown shortcuts (`#`, `##`, `###`, `-`, `1.`, `[]`, `>`, ` ``` `, `---`, `/today`)
 - ↩️ Undo/redo, find in page, live word count
 - ⚙️ Page options: full width, small text, Serif/Mono, lock, version history
 - 🔗 Backlinks at the bottom of linked pages
-- 💬 Range-based comments with CSS Custom Highlight API, resolve/reopen, orphan detection
+- 💬 Range-based comments with CSS Custom Highlight API, **replies**, **reactions**, resolve/reopen, orphan detection
+- 🧭 Table of contents with scroll-spy highlighting
 
 ### Database block
-- 🧮 Typed properties: title, text, number, date, checkbox, select
-- 📊 Six switchable views per database: **table, board, gallery, list, calendar, timeline**
+- 🧮 **15 property types**: title, text, number, date, checkbox, select, multi-select, status, **formula**, **rollup**, **relation**, **people**, **files**, URL, unique ID, created time, updated time
+- 🧪 **Formula engine**: `prop("Price") * prop("Qty")`, 20+ functions (`if`, `round`, `concat`, `contains`, …), no `eval`
+- 🔗 **Relations + rollups** across databases, plus **linked views** that mirror another database
+- 📊 Six switchable views per database: table, board, gallery, list, calendar, timeline
+- 🖐️ **Drag rows**: across board columns, between calendar days, and to reorder table/list/gallery
 - 🗓️ Calendar navigates by month and adds rows by clicking a day
 - ⏳ Timeline draws bars from the first and second date properties
-- Table & board views keep filter, sort, and inline cell editing
-- 🗃️ Group board by first select (or configured) property
+- 🎛️ Property manager: rename, retype, reformat, edit options, relation target, rollup function
+- 🔎 Property filters (`contains`, `is`, `is not`, `is empty`, `>`, `<`, `checked`), sort, inline cell editing
+
+### Tables
+- ➕ Add and remove rows and columns, header row/column toggles
+- 🎨 Per-cell colors, cell alignment, drag-to-resize columns
+- 🧮 Plain block table for quick grids, plus the full database for real data
 
 ### Media & files
 - 🎬 Video and 🎵 audio accept uploads or embed links (YouTube, Vimeo, Loom)
@@ -102,11 +120,12 @@ Plus **block text + background colors**, **inline `$equation$`**, table header r
 ### Phase 0 — Prototype (✅ done)
 - [x] Vanilla-JS workspace, editor, databases, teamspaces, comments
 - [x] Local static server with attachment validation and a media upload API
+- [x] Command palette, shortcut sheet, and first-run onboarding
 
 ### Phase 1 — Foundation (🛠️ in progress)
 - [ ] Repo scaffolding: monorepo (`frontend/`, `backend/`, `shared/`)
+- [x] Unit tests (`npm test`) + headless editor harness (`test/harness.html`)
 - [ ] CI/CD (lint, test, build)
-- [ ] Docker dev environment
 
 ### Phase 2 — Backend
 - [ ] REST/GraphQL API (Node.js + Express / Fastify)
@@ -119,8 +138,8 @@ Plus **block text + background colors**, **inline `$equation$`**, table header r
 ### Phase 3 — Frontend
 - [ ] React (or Vue/Svelte) app with routing
 - [ ] Rich-text editor (ProseMirror / Slate / TipTap)
-- [ ] Database views (table, board, gallery, list, calendar, timeline)
-- [ ] Comments & mentions
+- [ ] Database views rebuilt on the real data layer
+- [ ] Server-rendered permissions and presence
 - [ ] Offline-first + sync
 
 ### Phase 4 — Polish
@@ -161,9 +180,18 @@ notion-clone/
 │   ├── auth/main.js        # validation, session, redirect
 │   └── app/
 │       ├── store.js        # seed data, slugs, templates, session, trash
-│       ├── editor.js       # block library, rendering, editor + database views
+│       ├── database.js     # property engine, formula parser, row pipeline
+│       ├── database-view.js# database rendering: views, filters, relations, DnD
+│       ├── highlight.js    # dependency-free syntax highlighter
+│       ├── commands.js     # shortcut registry + fuzzy matching
+│       ├── overlays.js     # command palette, shortcut sheet, onboarding
+│       ├── editor.js       # block library, rendering, editor interactions
 │       └── main.js         # views, routing/SEO, comments, search, dialogs
-├── test/harness.html       # headless smoke test for the editor (28 assertions)
+├── test/
+│   ├── harness.html        # headless editor smoke test (57 assertions)
+│   ├── database.test.mjs   # formula engine + rows
+│   ├── highlight.test.mjs  # syntax highlighting
+│   └── commands.test.mjs   # fuzzy matching + shortcuts
 ├── .data/                  # runtime uploads: attachments + media (gitignored)
 ├── package.json
 └── README.md
@@ -186,10 +214,25 @@ The server is a small Node static file server, so `node server.mjs` also works.
 
 ```bash
 npm run check   # syntax-check every module
+npm test        # unit tests: formula engine, highlighter, fuzzy + shortcuts
 ```
 
 ### Smoke test
-With the dev server running, open `http://localhost:5173/test/harness.html` in a headless browser. It seeds a workspace, drives the editor (slash menu, block colors, template insert, calendar, sub-pages, media upload) and prints a PASS/FAIL list.
+With the dev server running, open `http://localhost:5173/test/harness.html` in a headless browser. It seeds a workspace, drives the editor (slash menu, mentions, code block, tables, database views, colors, template, media upload, command palette, shortcut sheet, onboarding, fuzzy search) and prints a PASS/FAIL list.
+
+### Keyboard shortcuts
+
+Press **`?`** in the app for the full sheet, or **`Mod+Shift+P`** for the command palette. The most-used ones:
+
+| Keys | Action |
+|---|---|
+| `/` · `@` · `=` | Insert block · mention · quick math |
+| `Mod+K` | Fuzzy search (pages, teamspaces, trash) |
+| `Mod+Shift+P` | Command palette |
+| `?` / `Mod+/` | Shortcut sheet |
+| `Mod+J` · `Mod+Shift+N` · `Mod+Shift+T` | New page · teamspace · from template |
+| `Mod+F` · `Mod+Z` · `Mod+Shift+Z` | Find · undo · redo |
+| `Mod+Shift+D` · `Mod+Shift+L` · `Mod+Shift+B` | Dark mode · sidebar · comments |
 
 ### Reset
 - Clear `notion-clone:v2` and `notion-clone:session` in `localStorage` to reset the workspace and sign out.
@@ -197,9 +240,10 @@ With the dev server running, open `http://localhost:5173/test/harness.html` in a
 
 ### Notes
 - Workspace data is a single-browser demo in `localStorage`; uploads go through the local Node server — verified documents under `.data/attachments`, general media under `.data/media`.
-- Database blocks cover six views with typed properties, filters, and sorting, but not Notion's full relation/rollup/formula engine.
+- Databases cover six views, 15 property types, formulas, rollups, relations, and linked views — but not a server-side query engine.
 - Timeline and calendar views need at least one date property; timeline uses a second date property as the bar end.
 - Range-comment highlights use the CSS Custom Highlight API (Chromium). Threads still work without highlights.
+- The formula engine is a hand-written parser (no `eval`) supporting `prop()`, arithmetic, comparisons, and 20 functions.
 
 ---
 

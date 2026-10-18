@@ -1,5 +1,11 @@
 import { createEditor } from "./editor.js";
 import {
+  formatShortcut,
+  fuzzyRank,
+  matchesShortcut,
+  SHORTCUT_GROUPS,
+} from "./commands.js";
+import {
   avatarColor,
   childPages,
   clearSession,
@@ -17,6 +23,7 @@ import {
   getTeamspace,
   initials,
   isLive,
+  livePages,
   loadSession,
   loadState,
   movePageTo,
@@ -427,7 +434,7 @@ const editor = createEditor({
   },
   onToast: toast,
   getPages: () => state.pages.filter(isLive),
-  onOpenPage: (id) => openPage(id),
+  onOpenPage: (id, options) => openPage(id, options),
   onComment: (anchor) => startBlockComment(anchor),
   onCommentAnchorClick: (anchor) => focusCommentAnchor(anchor),
   getSynced: () => state.syncedBlocks || {},
@@ -435,6 +442,12 @@ const editor = createEditor({
     state.syncedBlocks = state.syncedBlocks || {};
     state.syncedBlocks[syncId] = { text, updatedAt: Date.now() };
     persist({ sidebar: false, topbar: false });
+  },
+  getMembers: () => {
+    const host = currentPage();
+    const teamspace = host?.teamspaceId ? getTeamspace(state, host.teamspaceId) : null;
+    const members = teamspace?.members || [];
+    return members.length ? members : [profileMember()];
   },
 });
 
@@ -929,6 +942,17 @@ function renderSidebar() {
 }
 
 /* ---------------- session / account ---------------- */
+function profileMember() {
+  return {
+    id: session?.email || "you",
+    name: session?.name || "You",
+    email: session?.email || "you@example.com",
+    initials: initials(session?.name || "You"),
+    color: session?.color || "#4b5563",
+    role: "Admin",
+  };
+}
+
 function updateUser() {
   if (!session) return;
   const avatar = $("#user-avatar");
@@ -942,7 +966,7 @@ function updateUser() {
 }
 
 /* ---------------- navigation ---------------- */
-function openPage(id, { scrollTop = true } = {}) {
+function openPage(id, { scrollTop = true, blockId = null } = {}) {
   const page = getPage(state, id);
   if (!page || !isLive(page)) return;
   state.activeView = { type: "page", id };
@@ -950,6 +974,9 @@ function openPage(id, { scrollTop = true } = {}) {
   renderAll({ scrollTop });
   syncUrl("push");
   closeSidebarOnMobile();
+  if (blockId) {
+    requestAnimationFrame(() => editor.scrollToBlock(blockId));
+  }
 }
 
 function openTeamspace(id, { scrollTop = true } = {}) {
@@ -1288,14 +1315,18 @@ function commentTime(timestamp) {
   return new Date(timestamp).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
+const COMMENT_REACTIONS = ["👍", "🎉", "👀", "❤️", "🚀", "😕"];
+
 function renderComments() {
   const owner = commentsOwner();
   if (!owner) return;
   const comments = owner.comments || [];
   const view = state.activeView;
   const label = view.type === "teamspace" ? owner.name : owner.title || "Untitled";
+  const replyCount = comments.reduce((total, comment) => total + (comment.replies?.length || 0), 0);
 
-  $("#comments-heading-count").textContent = comments.length ? `(${comments.length})` : "";
+  $("#comments-heading-count").textContent =
+    comments.length ? `(${comments.length + replyCount})` : "";
   $("#comments-subtitle").textContent =
     view.type === "teamspace" ? `On the ${label} teamspace` : `On "${label}"`;
   commentsListEl.innerHTML = "";
@@ -1327,7 +1358,9 @@ function renderComments() {
           <span>${commentTime(comment.createdAt)}</span>
         </div>
         <p class="comment__body"></p>
+        <div class="comment__reactions"></div>
         <div class="comment__actions"></div>
+        <div class="comment__replies"></div>
       </div>`;
     item.querySelector(".comment__body").textContent = comment.text;
 
@@ -1350,6 +1383,29 @@ function renderComments() {
       item.querySelector(".comment__main").insertBefore(anchorButton, actions);
     }
 
+    const reactions = item.querySelector(".comment__reactions");
+    const counts = comment.reactions || {};
+    for (const emoji of COMMENT_REACTIONS) {
+      const count = counts[emoji] || 0;
+      if (!count && !emoji.trim()) continue;
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = `comment__reaction${count ? " has-reactions" : ""}`;
+      chip.dataset.commentReaction = emoji;
+      chip.title = count ? `${count} reaction${count === 1 ? "" : "s"}` : "Add reaction";
+      chip.textContent = count ? `${emoji} ${count}` : `${emoji}`;
+      chip.addEventListener("click", () => {
+        comment.reactions = comment.reactions || {};
+        comment.reactions[emoji] = comment.reactions[emoji]
+          ? Math.max(0, comment.reactions[emoji] - 1)
+          : 1;
+        if (!comment.reactions[emoji]) delete comment.reactions[emoji];
+        persist({ sidebar: false, topbar: false });
+        renderComments();
+      });
+      reactions.appendChild(chip);
+    }
+
     const resolve = document.createElement("button");
     resolve.type = "button";
     resolve.className = comment.resolved ? "" : "resolve";
@@ -1361,6 +1417,53 @@ function renderComments() {
       renderComments();
       refreshCommentHighlights();
       toast(comment.resolved ? "Comment resolved" : "Comment reopened");
+    });
+
+    const reply = document.createElement("button");
+    reply.type = "button";
+    reply.textContent = "Reply";
+    reply.addEventListener("click", () => {
+      const field = document.createElement("div");
+      field.className = "comment__reply-box";
+      const input = document.createElement("input");
+      input.type = "text";
+      input.placeholder = "Write a reply…";
+      const send = document.createElement("button");
+      send.type = "button";
+      send.className = "resolve";
+      send.textContent = "Reply";
+
+      const submit = () => {
+        const text = input.value.trim();
+        if (!text) return;
+        comment.replies = comment.replies || [];
+        comment.replies.push({
+          id: uid(),
+          text,
+          author: {
+            name: session?.name || "You",
+            initials: initials(session?.name || "You"),
+            color: session?.color || "#4b5563",
+          },
+          createdAt: Date.now(),
+        });
+        persist({ sidebar: false, topbar: false });
+        updateCommentsBadge();
+        renderComments();
+      };
+
+      send.addEventListener("click", submit);
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          submit();
+        }
+        if (event.key === "Escape") field.remove();
+      });
+
+      field.append(input, send);
+      item.querySelector(".comment__main").appendChild(field);
+      input.focus();
     });
 
     const remove = document.createElement("button");
@@ -1376,7 +1479,28 @@ function renderComments() {
       toast("Comment deleted");
     });
 
-    actions.append(resolve, remove);
+    actions.append(reply, resolve, remove);
+
+    const replies = item.querySelector(".comment__replies");
+    for (const entry of comment.replies || []) {
+      const replyEl = document.createElement("div");
+      replyEl.className = "comment__reply";
+      const replyAuthor = entry.author || {};
+      replyEl.innerHTML = `
+        <span class="comment__avatar comment__avatar--sm" style="background:${
+          replyAuthor.color || "#4b5563"
+        }">${escapeHtml(replyAuthor.initials || initials(replyAuthor.name || "?"))}</span>
+        <div>
+          <div class="comment__head">
+            <strong>${escapeHtml(replyAuthor.name || "Someone")}</strong>
+            <span>${commentTime(entry.createdAt)}</span>
+          </div>
+          <p class="comment__body"></p>
+        </div>`;
+      replyEl.querySelector(".comment__body").textContent = entry.text;
+      replies.appendChild(replyEl);
+    }
+
     commentsListEl.appendChild(item);
   }
 }
@@ -2556,51 +2680,63 @@ function searchSnippet(page, query) {
   return `${start > 0 ? "…" : ""}${text.slice(start, end)}${end < text.length ? "…" : ""}`;
 }
 
+function highlightFuzzy(label, positions) {
+  const source = String(label ?? "");
+  if (!positions?.length) return escapeHtml(source);
+  const marks = new Set(positions);
+  let out = "";
+  for (let index = 0; index < source.length; index += 1) {
+    const char = escapeHtml(source[index]);
+    out += marks.has(index) ? `<mark>${char}</mark>` : char;
+  }
+  return out;
+}
+
 function renderSearch(query) {
-  const q = query.trim().toLowerCase();
+  const q = query.trim();
   searchMatches = [];
   searchIndex = 0;
   searchResultsEl.innerHTML = "";
 
-  const teamspaces = state.teamspaces.filter((teamspace) => !q || teamspace.name.toLowerCase().includes(q));
-  const pages = state.pages.filter(
-    (page) =>
-      isLive(page) &&
-      (!q ||
-        (page.title || "Untitled").toLowerCase().includes(q) ||
-        pageRawText(page).toLowerCase().includes(q))
-  );
+  const teamspaceHits = fuzzyRank(q, state.teamspaces.map((teamspace) => ({
+    id: teamspace.id,
+    label: teamspace.name || "Untitled teamspace",
+    keywords: [teamspace.description || ""],
+    item: teamspace,
+  })));
 
-  if (q) {
-    for (const teamspace of teamspaces) searchMatches.push({ kind: "teamspace", item: teamspace });
-    for (const page of pages) searchMatches.push({ kind: "page", item: page });
-  } else {
-    for (const teamspace of state.teamspaces) searchMatches.push({ kind: "teamspace", item: teamspace });
-    for (const page of pages.slice(0, 12)) searchMatches.push({ kind: "page", item: page });
-  }
+  const pageHits = fuzzyRank(q, livePages(state).map((page) => ({
+    id: page.id,
+    label: page.title || "Untitled",
+    keywords: [pageRawText(page).slice(0, 400)],
+    weight: 2,
+    item: page,
+  })));
 
-  if (!searchMatches.length) {
-    searchResultsEl.innerHTML = '<div class="search__empty">Nothing found. Try a different search.</div>';
-    return;
-  }
+  const trashHits = fuzzyRank(q, trashedPages(state).map((page) => ({
+    id: page.id,
+    label: page.title || "Untitled",
+    item: page,
+    trashed: true,
+  })));
 
   const groups = [
-    { kind: "teamspace", label: "TEAMSPACES" },
-    { kind: "page", label: "PAGES" },
+    { kind: "teamspace", label: "TEAMSPACES", hits: teamspaceHits },
+    { kind: "page", label: "PAGES", hits: pageHits },
+    { kind: "trash", label: "TRASH", hits: trashHits },
   ];
 
   for (const group of groups) {
-    const items = searchMatches.filter((match) => match.kind === group.kind);
-    if (!items.length) continue;
-
+    if (!group.hits.length) continue;
     const heading = document.createElement("div");
     heading.className = "search-group";
     heading.textContent = group.label;
     searchResultsEl.appendChild(heading);
 
-    items.forEach((match) => {
-      const index = searchMatches.indexOf(match);
-      const item = match.item;
+    for (const hit of group.hits.slice(0, group.kind === "page" ? 12 : 6)) {
+      const item = hit.item;
+      const index = searchMatches.length;
+      searchMatches.push({ kind: group.kind, item, positions: hit.positions });
       const button = document.createElement("button");
       button.className = `search-result${index === 0 ? " is-active" : ""}`;
       button.dataset.searchIndex = String(index);
@@ -2610,32 +2746,38 @@ function renderSearch(query) {
         button.innerHTML = `
           <span class="search-result__icon">${item.icon || "🚀"}</span>
           <span class="search-result__text">
-            <span class="search-result__label">${escapeHtml(item.name)}</span>
+            <span class="search-result__label">${highlightFuzzy(item.name, hit.positions)}</span>
             ${snippet ? `<span class="search-result__snippet">${escapeHtml(snippet)}</span>` : ""}
           </span>
           <span class="search-result__path">Teamspace</span>`;
-        button.addEventListener("click", () => {
-          closeSearch();
-          openTeamspace(item.id);
-        });
       } else {
         const teamspace = item.teamspaceId ? getTeamspace(state, item.teamspaceId) : null;
-        const snippet = searchSnippet(item, q);
+        const snippet = searchSnippet(item, q.toLowerCase());
         button.innerHTML = `
           <span class="search-result__icon">${item.icon || "📄"}</span>
           <span class="search-result__text">
-            <span class="search-result__label">${escapeHtml(item.title || "Untitled")}</span>
+            <span class="search-result__label">${highlightFuzzy(item.title || "Untitled", hit.positions)}</span>
             ${snippet ? `<span class="search-result__snippet">${escapeHtml(snippet)}</span>` : ""}
           </span>
-          <span class="search-result__path">${escapeHtml(teamspace?.name || "Private")}</span>`;
-        button.addEventListener("click", () => {
-          closeSearch();
-          openPage(item.id);
-        });
+          <span class="search-result__path">${
+            group.kind === "trash" ? "In trash" : escapeHtml(teamspace?.name || "Private")
+          }</span>`;
       }
 
+      button.addEventListener("click", () => {
+        closeSearch();
+        if (group.kind === "teamspace") openTeamspace(item.id);
+        else if (group.kind === "trash") {
+          openTrash();
+          toast("This page is in the trash — restore it to open");
+        } else openPage(item.id);
+      });
       searchResultsEl.appendChild(button);
-    });
+    }
+  }
+
+  if (!searchMatches.length) {
+    searchResultsEl.innerHTML = '<div class="search__empty">Nothing found. Try a different search.</div>';
   }
 }
 
@@ -2772,7 +2914,29 @@ $("#find-close").addEventListener("click", closeFind);
 /* ---------------- global shortcuts + outside clicks ---------------- */
 document.addEventListener("keydown", (event) => {
   const mod = event.metaKey || event.ctrlKey;
-  const typingField = event.target.matches("input, textarea");
+  const target = event.target;
+  const isElement = target instanceof Element;
+  const typingField = isElement && target.matches("input, textarea");
+  const typingContent = typingField || (isElement && target.isContentEditable);
+
+  if (!typingContent && !mod && event.key === "?") {
+    event.preventDefault();
+    shortcuts.open();
+    return;
+  }
+
+  if (mod && event.shiftKey && !typingField && event.key.toLowerCase() === "p") {
+    event.preventDefault();
+    if (commandPalette.isOpen()) commandPalette.close();
+    else commandPalette.open();
+    return;
+  }
+
+  if (mod && !typingField && (event.key === "/" || event.key === "?")) {
+    event.preventDefault();
+    shortcuts.open();
+    return;
+  }
 
   if (mod && !typingField && event.key.toLowerCase() === "z") {
     event.preventDefault();
@@ -2811,6 +2975,31 @@ document.addEventListener("keydown", (event) => {
     return;
   }
 
+  if (mod && event.shiftKey && event.key.toLowerCase() === "t") {
+    event.preventDefault();
+    openTemplates();
+    return;
+  }
+
+  if (mod && event.shiftKey && event.key.toLowerCase() === "d") {
+    event.preventDefault();
+    toggleTheme();
+    return;
+  }
+
+  if (mod && event.shiftKey && event.key.toLowerCase() === "l") {
+    event.preventDefault();
+    toggleSidebar();
+    return;
+  }
+
+  if (mod && event.shiftKey && event.key.toLowerCase() === "b") {
+    event.preventDefault();
+    if (commentsOpen) closeComments();
+    else openComments();
+    return;
+  }
+
   if (event.key === "Escape") {
     closeSearch();
     closeTeamspaceModal();
@@ -2822,6 +3011,9 @@ document.addEventListener("keydown", (event) => {
     closeComments();
     closeHistory();
     closeFind();
+    if (commandPalette.isOpen()) commandPalette.close();
+    if (shortcuts.isOpen()) shortcuts.close();
+    if (onboarding.isOpen()) onboarding.close();
     iconPicker.hidden = true;
     coverPicker.hidden = true;
     pageMenu.hidden = true;
@@ -2837,6 +3029,119 @@ document.addEventListener("mousedown", (event) => {
   pageMenu.hidden = true;
   teamspaceMenu.hidden = true;
 });
+
+/* ---------------- theme / sidebar toggles ---------------- */
+function toggleTheme() {
+  const next = state.theme === "dark" ? "light" : "dark";
+  applyTheme(next);
+  saveState(state);
+  toast(next === "dark" ? "Dark mode on" : "Light mode on");
+}
+
+function toggleSidebar() {
+  const mobile = window.matchMedia("(max-width: 860px)").matches;
+  if (mobile) {
+    const open = app.classList.toggle("sidebar-open");
+    sidebarScrim.hidden = !open;
+    return;
+  }
+  const collapsed = app.classList.toggle("sidebar-collapsed");
+  toast(collapsed ? "Sidebar collapsed" : "Sidebar expanded");
+}
+
+import {
+  createCommandPalette,
+  createOnboarding,
+  createShortcutSheet,
+} from "./overlays.js";
+
+/* ---------------- command palette / shortcuts / onboarding ---------------- */
+const COMMANDS = [
+  { id: "search", group: "Navigate", label: "Search pages, teamspaces, and trash", icon: "🔍", shortcut: "Mod+K", keywords: ["find", "goto"], run: () => openSearch() },
+  { id: "palette", group: "Navigate", label: "Open the command palette", icon: "⌘", shortcut: "Mod+Shift+P", keywords: ["commands", "actions"], run: () => commandPalette.open() },
+  { id: "shortcuts", group: "Help", label: "Show every keyboard shortcut", icon: "⌨️", shortcut: "Mod+/", keywords: ["keys", "help", "reference"], run: () => shortcuts.open() },
+  { id: "tour", group: "Help", label: "Restart the welcome tour", icon: "👋", keywords: ["onboarding", "intro", "help"], run: () => onboarding.open(true) },
+
+  { id: "new-page", group: "Create", label: "New private page", icon: "📄", shortcut: "Mod+J", keywords: ["add", "create"], run: () => createPrivatePage() },
+  { id: "new-teamspace", group: "Create", label: "New teamspace", icon: "🚀", shortcut: "Mod+Shift+N", keywords: ["create", "team"], run: () => openTeamspaceModal(null) },
+  { id: "template", group: "Create", label: "Start from a template", icon: "🧩", shortcut: "Mod+Shift+T", keywords: ["starter", "new"], run: () => openTemplates() },
+
+  { id: "theme", group: "View", label: "Toggle dark mode", icon: "🌙", shortcut: "Mod+Shift+D", keywords: ["theme", "appearance"], run: () => toggleTheme() },
+  { id: "sidebar", group: "View", label: "Toggle the sidebar", icon: "📂", shortcut: "Mod+Shift+L", keywords: ["panel", "hide"], run: () => toggleSidebar() },
+  { id: "comments", group: "View", label: "Toggle comments", icon: "💬", shortcut: "Mod+Shift+B", keywords: ["discussion", "thread"], run: () => (commentsOpen ? closeComments() : openComments()) },
+  { id: "find", group: "View", label: "Find in this page", icon: "🔎", shortcut: "Mod+F", keywords: ["search text"], run: () => openFind() },
+
+  { id: "undo", group: "Edit", label: "Undo", icon: "↩", shortcut: "Mod+Z", keywords: ["revert"], run: () => undo() },
+  { id: "redo", group: "Edit", label: "Redo", icon: "↪", shortcut: "Mod+Shift+Z", keywords: ["repeat"], run: () => redo() },
+  { id: "copy-link", group: "Edit", label: "Copy a share link to this page", icon: "🔗", keywords: ["share", "url"], run: () => openShare() },
+  { id: "export", group: "Edit", label: "Export this page as Markdown", icon: "⬇", keywords: ["download", "md"], run: () => { const page = currentPage(); if (page) exportMarkdown(page); else toast("Open a page first"); } },
+  { id: "version-history", group: "Edit", label: "Open version history", icon: "🕘", keywords: ["restore", "history"], run: () => { const page = currentPage(); if (page) openHistory(page); else toast("Open a page first"); } },
+
+  { id: "trash", group: "Workspace", label: "Open the trash", icon: "🗑", keywords: ["deleted", "bin"], run: () => openTrash() },
+  { id: "settings", group: "Workspace", label: "Open workspace settings", icon: "⚙", keywords: ["preferences", "profile"], run: () => openSettings() },
+  { id: "full-width", group: "Workspace", label: "Toggle full width", icon: "↔", keywords: ["layout"], run: () => runPageAction("fullwidth") },
+  { id: "small-text", group: "Workspace", label: "Toggle small text", icon: "🔡", keywords: ["layout", "compact"], run: () => runPageAction("smalltext") },
+  { id: "lock", group: "Workspace", label: "Lock or unlock this page", icon: "🔒", keywords: ["read only", "readonly"], run: () => runPageAction("lock") },
+  { id: "duplicate", group: "Workspace", label: "Duplicate this page", icon: "⧉", keywords: ["copy"], run: () => runPageAction("duplicate") },
+  { id: "delete", group: "Workspace", label: "Move this page to trash", icon: "🗑", keywords: ["remove", "delete"], run: () => runPageAction("delete") },
+  { id: "rename", group: "Workspace", label: "Rename this page", icon: "✎", keywords: ["title"], run: () => runPageAction("rename") },
+  { id: "favorite", group: "Workspace", label: "Toggle favorite", icon: "⭐", keywords: ["star", "pin"], run: () => runPageAction("favorite") },
+  { id: "logout", group: "Workspace", label: "Log out", icon: "↩", keywords: ["sign out", "exit"], run: () => { clearSession(); window.location.replace("index.html"); } },
+];
+
+const commandPalette = createCommandPalette({
+  modal: $("#command-modal"),
+  input: $("#command-input"),
+  results: $("#command-results"),
+  commands: COMMANDS,
+  onRun: (command) => {
+    try {
+      command.run();
+    } catch (error) {
+      toast(error.message || "That command failed");
+    }
+  },
+});
+
+const shortcuts = createShortcutSheet({
+  modal: $("#shortcuts-modal"),
+  grid: $("#shortcut-grid"),
+  closeButton: $("#shortcuts-close"),
+});
+
+const onboarding = createOnboarding({
+  modal: $("#onboarding-modal"),
+  progress: $("#onboarding-progress"),
+  art: $("#onboarding-art"),
+  title: $("#onboarding-title"),
+  text: $("#onboarding-text"),
+  points: $("#onboarding-points"),
+  keys: $("#onboarding-keys"),
+  back: $("#onboarding-back"),
+  next: $("#onboarding-next"),
+  skip: $("#onboarding-skip"),
+});
+
+function runPageAction(action) {
+  const page = currentPage();
+  if (!page) {
+    toast("Open a page first");
+    return;
+  }
+  const button = pageMenu.querySelector(`[data-page-action="${action}"]`);
+  if (!button) {
+    toast("That action is not available on this page");
+    return;
+  }
+  button.click();
+}
+
+function maybeStartOnboarding() {
+  if (state.onboarded) return;
+  state.onboarded = true;
+  saveState(state);
+  setTimeout(() => onboarding.open(true), 500);
+}
 
 /* ---------------- click below ---------------- */
 $("#click-below").addEventListener("click", () => {
@@ -2881,6 +3186,7 @@ function start() {
   if (route && applied === false) {
     toast("That link doesn't point to a page or teamspace");
   }
+  maybeStartOnboarding();
 }
 
 if (session) {

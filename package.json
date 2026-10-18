@@ -1,12 +1,13 @@
 {
   "name": "notion-clone",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
-  "description": "A Notion-style login, workspace, block editor, databases, teamspaces, and comments",
+  "description": "A Notion-style login, workspace, block editor, databases, teamspaces, commands, and comments",
   "type": "module",
   "scripts": {
     "dev": "node server.mjs",
     "start": "node server.mjs --port 4173",
-    "check": "node --check server.mjs && node --check src/app/store.js && node --check src/app/editor.js && node --check src/app/main.js && node --check src/auth/main.js"
+    "check": "node --check server.mjs && node --check src/app/store.js && node --check src/app/database.js && node --check src/app/database-view.js && node --check src/app/highlight.js && node --check src/app/commands.js && node --check src/app/overlays.js && node --check src/app/editor.js && node --check src/app/main.js && node --check src/auth/main.js",
+    "test": "node test/database.test.mjs && node test/highlight.test.mjs && node test/commands.test.mjs"
   }
 }
