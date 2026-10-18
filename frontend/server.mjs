@@ -5,13 +5,14 @@ import { fileURLToPath } from "node:url";
 import { createHash, randomUUID } from "node:crypto";
 
 const root = fileURLToPath(new URL(".", import.meta.url)).replace(/[\\/]+$/, "");
+const repoRoot = resolve(root, "..");
 const portArg = process.argv.indexOf("--port");
 const port = Number(portArg > -1 ? process.argv[portArg + 1] : 5173);
 
-const attachmentsDir = join(root, ".data", "attachments");
+const attachmentsDir = join(repoRoot, ".data", "attachments");
 await mkdir(attachmentsDir, { recursive: true });
 
-const mediaDir = join(root, ".data", "media");
+const mediaDir = join(repoRoot, ".data", "media");
 await mkdir(mediaDir, { recursive: true });
 
 const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
@@ -558,6 +559,25 @@ const server = createServer(async (req, res) => {
       const route = mediaRoute(pathname);
       if (!route) return sendJson(res, 404, { error: "Not found." });
       await handleMediaGet(req, res, route.id, route.action);
+      return;
+    }
+
+    /* Shared contracts live outside the static root so the frontend and the
+       backend read the same file. */
+    if (pathname.startsWith("/shared/") && pathname.endsWith(".js")) {
+      const name = pathname.slice("/shared/".length);
+      if (!/^[A-Za-z0-9._-]+\.js$/.test(name)) {
+        res.writeHead(404).end("Not found");
+        return;
+      }
+      const body = await readFile(join(repoRoot, "shared", name));
+      res.writeHead(200, {
+        "Content-Type": "text/javascript; charset=utf-8",
+        "Content-Length": body.length,
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
+      });
+      res.end(req.method === "HEAD" ? undefined : body);
       return;
     }
 

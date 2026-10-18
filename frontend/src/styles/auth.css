@@ -206,6 +206,29 @@ body.auth {
   color: #969694;
 }
 
+/* ---------- server-backed sign in ---------- */
+
+.auth-switch {
+  margin-top: 14px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  color: #6b6b68;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.auth-switch:hover {
+  color: #37352f;
+}
+
+.auth-field input[type="password"] {
+  letter-spacing: 0.06em;
+}
+
 .auth__footer {
   display: flex;
   justify-content: space-between;

@@ -52,9 +52,25 @@
             </label>
             <p class="auth-error" id="name-error" hidden>That name looks a little short.</p>
 
+            <label class="auth-field" id="password-field" hidden>
+              <span>Password</span>
+              <input
+                id="login-password"
+                name="password"
+                type="password"
+                autocomplete="current-password"
+                placeholder="At least 8 characters"
+              />
+            </label>
+            <p class="auth-error" id="password-error" hidden>Use at least 8 characters.</p>
+
             <button class="auth-submit" id="login-btn" type="submit">
               <span class="auth-submit__label">Continue</span>
               <span class="auth-spinner" id="login-spinner" hidden aria-hidden="true"></span>
+            </button>
+
+            <button class="auth-switch" id="auth-mode-toggle" type="button" hidden>
+              No account yet? Create one
             </button>
           </form>
 
@@ -65,7 +81,12 @@
             Continue with the demo account
           </button>
 
-          <p class="auth-note">
+          <p class="auth-note" id="mode-hint" hidden>
+            Connected to the workspace server — accounts are stored in the database and your
+            session lives in a secure cookie.
+          </p>
+
+          <p class="auth-note" id="local-hint">
             This is a local clone. There is no password and no server — your session and
             workspace are stored in this browser.
           </p>

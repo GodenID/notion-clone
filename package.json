@@ -1,13 +1,24 @@
 {
   "name": "notion-clone",
-  "version": "1.2.0",
+  "version": "2.0.0",
   "private": true,
-  "description": "A Notion-style login, workspace, block editor, databases, teamspaces, commands, and comments",
+  "description": "A Notion-style workspace: block editor, databases, teamspaces, commands, comments — served by a Fastify + SQLite backend",
   "type": "module",
+  "workspaces": [
+    "backend"
+  ],
   "scripts": {
-    "dev": "node server.mjs",
-    "start": "node server.mjs --port 4173",
-    "check": "node --check server.mjs && node --check src/app/store.js && node --check src/app/database.js && node --check src/app/database-view.js && node --check src/app/highlight.js && node --check src/app/commands.js && node --check src/app/overlays.js && node --check src/app/editor.js && node --check src/app/main.js && node --check src/auth/main.js",
-    "test": "node test/database.test.mjs && node test/highlight.test.mjs && node test/commands.test.mjs"
+    "dev": "node backend/server.js",
+    "start": "node backend/server.js",
+    "dev:static": "node frontend/server.mjs",
+    "migrate": "node backend/migrate-cli.js",
+    "check": "node scripts/check.mjs",
+    "test": "node test/run.mjs",
+    "test:unit": "node test/run.mjs --unit",
+    "test:harness": "node test/harness-run.mjs",
+    "test:harness:static": "node scripts/harness-static.mjs"
+  },
+  "engines": {
+    "node": ">=22.5.0"
   }
 }

@@ -8,7 +8,7 @@ import {
   PROPERTY_TYPES,
   sortRows,
   STATUS_GROUPS,
-} from "../src/app/database.js";
+} from "../frontend/src/app/database.js";
 
 let passed = 0;
 let failed = 0;

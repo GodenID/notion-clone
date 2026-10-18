@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>auth harness</title>
+  </head>
+  <body>
+    <pre id="out">running.</pre>
+    <iframe id="frame" src="/index.html?realtime=off" style="width: 1200px; height: 800px"></iframe>
+    <script type="module">
+      /* Drives the real login screen against the real backend: create an account,
+         sign out, sign back in, and check a wrong password is refused. */
+
+      const results = [];
+      const log = (name, ok, extra = "") =>
+        results.push(`${ok ? "PASS" : "FAIL"} ${name}${extra ? ` - ${extra}` : ""}`);
+      const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+      const email = `auth-${Date.now()}@test.dev`;
+      const password = "correct-horse";
+
+      const api = async (method, path, body) => {
+        const response = await fetch(path, {
+          method,
+          headers: body === undefined ? {} : { "content-type": "application/json" },
+          ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        });
+        const payload = await response.json().catch(() => null);
+        return { status: response.status, payload };
+      };
+
+      const frame = document.getElementById("frame");
+      let ready = false;
+      frame.addEventListener("load", () => {
+        ready = true;
+      });
+
+      /* The app shell rewrites the URL to /p/<slug> once it boots. */
+      const inWorkspace = (win) => /\/p\/|\/app\.html/.test(win.location.pathname);
+      const onLoginScreen = (win) => win.location.pathname.startsWith("/index.html");
+
+      const run = async () => {
+        try {
+          while (!ready) await sleep(50);
+          let doc = frame.contentDocument;
+          let win = frame.contentWindow;
+          const $ = (id) => doc.getElementById(id);
+          const type = (node, value) => {
+            node.value = value;
+            node.dispatchEvent(new win.Event("input", { bubbles: true }));
+          };
+          const submit = () => $("login-btn").click();
+          const reopen = async () => {
+            ready = false;
+            frame.src = "/index.html?realtime=off";
+            while (!ready) await sleep(50);
+            doc = frame.contentDocument;
+            win = frame.contentWindow;
+            await sleep(800);
+          };
+
+          await sleep(800);
+
+          log("login page loads", Boolean($("login-form")));
+          log("password field appears with a backend", !$("password-field").hidden);
+          log(
+            "create-account toggle appears",
+            !$("auth-mode-toggle").hidden,
+            $("auth-mode-toggle").textContent.trim()
+          );
+
+          /* ---------- create ---------- */
+          $("auth-mode-toggle").click();
+          await sleep(120);
+          log(
+            "toggle switches to create mode",
+            $("login-btn").textContent.includes("Create"),
+            $("login-btn").textContent.trim()
+          );
+
+          type($("login-email"), "not-an-email");
+          submit();
+          await sleep(150);
+          log("invalid email is rejected client-side", !$("email-error").hidden);
+
+          type($("login-email"), email);
+          type($("login-name"), "Ada Lovelace");
+          type($("login-password"), "short");
+          submit();
+          await sleep(150);
+          log("short password is rejected client-side", !$("password-error").hidden);
+
+          type($("login-password"), password);
+          submit();
+          for (let attempt = 0; attempt < 40 && !inWorkspace(win); attempt += 1) await sleep(250);
+          log("creating an account lands in the workspace", inWorkspace(win), win.location.href);
+
+          /* ---------- the account really exists ---------- */
+          const created = await api("POST", "/api/auth/login", { email, password });
+          log("the account can sign in through the API", created.status === 200, `status=${created.status}`);
+
+          /* ---------- wrong password is refused ---------- */
+          const wrong = await api("POST", "/api/auth/login", { email, password: "nope-nope" });
+          log("a wrong password is refused by the API", wrong.status === 401, `status=${wrong.status}`);
+
+          /* ---------- sign in again through the UI ---------- */
+          await api("POST", "/api/auth/logout", {});
+          await reopen();
+
+          type($("login-email"), email);
+          type($("login-password"), "wrong-password");
+          submit();
+          await sleep(1200);
+          log(
+            "a wrong password in the UI keeps you on the login screen",
+            onLoginScreen(win) && /incorrect/i.test($("password-error").textContent),
+            `${win.location.pathname} "${$("password-error").textContent.trim()}"`
+          );
+
+          type($("login-password"), password);
+          submit();
+          for (let attempt = 0; attempt < 40 && !inWorkspace(win); attempt += 1) await sleep(250);
+          log("signing in reaches the workspace", inWorkspace(win), win.location.href);
+
+          const workspace = await api("GET", "/api/workspace");
+          log("the signed-in session owns the workspace", workspace.status === 200, `status=${workspace.status}`);
+
+          /* ---------- signing out from the app ---------- */
+          const appDoc = frame.contentDocument;
+          const logout = appDoc.getElementById("logout-btn");
+          logout.click();
+          for (let attempt = 0; attempt < 40 && !onLoginScreen(win); attempt += 1) await sleep(250);
+          log("signing out returns to the login screen", onLoginScreen(win), win.location.href);
+
+          const afterLogout = await api("GET", "/api/workspace");
+          log("the server session is gone after signing out", afterLogout.status === 401, `status=${afterLogout.status}`);
+
+          await reopen();
+          type($("login-email"), email);
+          type($("login-password"), password);
+          submit();
+          for (let attempt = 0; attempt < 40 && !inWorkspace(win); attempt += 1) await sleep(250);
+          log("signing in again still works", inWorkspace(win), win.location.href);
+        } catch (error) {
+          log("harness error", false, String(error?.stack || error));
+        }
+
+        document.getElementById("out").textContent = results.join("\n");
+        document.title = results.some((line) => line.startsWith("FAIL")) ? "FAILED" : "ALL PASS";
+      };
+
+      run();
+    </script>
+  </body>
+</html>

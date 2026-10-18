@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>server-mode harness</title>
+  </head>
+  <body>
+    <pre id="out">running.</pre>
+    <iframe id="frame" style="width: 1200px; height: 800px"></iframe>
+    <script type="module">
+      /* Runs the real app against the real backend: register through the API, let
+         the app bootstrap the workspace, edit a page, then read the page back out
+         of SQLite to prove the write actually landed. */
+
+      const results = [];
+      const log = (name, ok, extra = "") =>
+        results.push(`${ok ? "PASS" : "FAIL"} ${name}${extra ? ` - ${extra}` : ""}`);
+      const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+      const email = `harness-${Date.now()}@test.dev`;
+      const password = "harness-password";
+
+      const api = async (method, path, body) => {
+        const response = await fetch(path, {
+          method,
+          headers: body === undefined ? {} : { "content-type": "application/json" },
+          ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        });
+        const payload = await response.json().catch(() => null);
+        if (!response.ok) throw new Error(payload?.error || `${path} → ${response.status}`);
+        return payload;
+      };
+
+      localStorage.setItem(
+        "notion-clone:session",
+        JSON.stringify({ name: "Server Harness", email, color: "#2383e2" })
+      );
+      localStorage.removeItem("notion-clone:v2");
+
+      const frame = document.getElementById("frame");
+      let appReady = false;
+
+      frame.addEventListener("load", async () => {
+        appReady = true;
+      });
+
+      const run = async () => {
+        try {
+          const health = await api("GET", "/api/health");
+          log("backend reachable", health.ok === true, `driver=${health.driver}`);
+
+          const registered = await api("POST", "/api/auth/register", {
+            email,
+            name: "Server Harness",
+            password,
+          });
+          log("register returns a session", Boolean(registered.user?.id), registered.user?.id);
+
+          const before = await api("GET", "/api/workspace");
+          log("workspace starts empty", before.pages.length === 0, `pages=${before.pages.length}`);
+
+          /* Boot the app only once the session cookie exists. */
+          frame.src = "/app.html?realtime=off";
+          while (!appReady) await sleep(100);
+          const doc = frame.contentDocument;
+          const win = frame.contentWindow;
+          win.addEventListener("error", (event) => log("window error", false, event.message));
+          await sleep(2000);
+          log("app booted on a page route", /^\/p\//.test(win.location.pathname), win.location.href);
+
+          /* Seeding streams one request at a time; poll until it lands. */
+          let seeded = { pages: [], teamspaces: [] };
+          for (let attempt = 0; attempt < 60; attempt += 1) {
+            seeded = await api("GET", "/api/workspace");
+            if (seeded.pages.length > 0) break;
+            await sleep(250);
+          }
+
+          log(
+            "app seeded its workspace to the server",
+            seeded.pages.length > 0,
+            `pages=${seeded.pages.length} teamspaces=${seeded.teamspaces.length}`
+          );
+
+          if (seeded.pages.length) {
+            const page = seeded.pages[0];
+            const detail = await api("GET", `/api/pages/${page.id}`);
+            log(
+              "seeded blocks were uploaded",
+              detail.blocks.length > 0,
+              `blocks=${detail.blocks.length}`
+            );
+
+            /* ---------- edit through the UI ---------- */
+            const navItem = doc.querySelector(`[data-page-id="${page.id}"]`) || doc.querySelector(".nav-item");
+            navItem?.dispatchEvent(new win.MouseEvent("click", { bubbles: true }));
+            await sleep(1200);
+
+            const editor = doc.getElementById("editor");
+            log("editor rendered the page", Boolean(editor && editor.children.length > 0), `blocks=${editor?.children.length}`);
+
+            const input = editor?.querySelector(".block__input");
+            if (input) {
+              input.focus();
+              input.textContent = "Edited from the browser";
+              input.dispatchEvent(new win.InputEvent("input", { bubbles: true }));
+              await sleep(2500);
+
+              const reread = await api("GET", `/api/pages/${page.id}`);
+              const saved = JSON.stringify(reread.blocks);
+              log(
+                "an edit in the browser reached the server",
+                saved.includes("Edited from the browser"),
+                `blocks=${reread.blocks.length}`
+              );
+            } else {
+              log("an edit in the browser reached the server", false, "no editable block found");
+            }
+
+            /* ---------- renaming from the UI syncs too ---------- */
+            const title = doc.getElementById("page-title");
+            title.focus();
+            title.textContent = "Renamed by test";
+            title.dispatchEvent(new win.InputEvent("input", { bubbles: true }));
+            await sleep(2500);
+            const renamed = await api("GET", `/api/pages/${page.id}`);
+            log(
+              "a rename in the browser reached the server",
+              renamed.page.title === "Renamed by test",
+              `title="${renamed.page.title}" slug=${renamed.page.slug}`
+            );
+
+            /* ---------- search hits the server index ---------- */
+            const search = await api("GET", "/api/search?q=Edited");
+            log("server search finds the browser edit", search.results.length > 0, `hits=${search.results.length}`);
+          }
+        } catch (error) {
+          log("harness error", false, String(error?.stack || error));
+        }
+
+        document.getElementById("out").textContent = results.join("\n");
+        document.title = results.some((line) => line.startsWith("FAIL")) ? "FAILED" : "ALL PASS";
+      };
+
+      run();
+    </script>
+  </body>
+</html>

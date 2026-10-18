@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check-and-test:
+    name: Check and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Syntax check every module
+        run: npm run check
+
+      - name: Unit and integration tests
+        run: npm test
+
+      - name: Boot the server and hit the API
+        run: |
+          PORT=5199 node backend/server.js &
+          for i in $(seq 1 40); do
+            if curl -fsS "http://127.0.0.1:5199/api/health" > /dev/null; then break; fi
+            sleep 0.25
+          done
+          curl -fsS "http://127.0.0.1:5199/api/health"
+          curl -fsS -o /dev/null -w "index: %{http_code}\n" "http://127.0.0.1:5199/"
+          curl -fsS -o /dev/null -w "app shell: %{http_code}\n" "http://127.0.0.1:5199/app.html"
+          curl -fsS -o /dev/null -w "shared contract: %{http_code}\n" "http://127.0.0.1:5199/shared/contracts.js"
+
+  browser:
+    name: Browser harness
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Browser tests (auth, editor, server sync)
+        run: npm run test:harness
+
+      - name: Browser tests against the static prototype server
+        run: npm run test:harness:static

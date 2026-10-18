@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { CODE_LANGUAGES, highlightCode, highlightLine, normalizeLanguage } from "../src/app/highlight.js";
+import { CODE_LANGUAGES, highlightCode, highlightLine, normalizeLanguage } from "../frontend/src/app/highlight.js";
 
 let passed = 0;
 let failed = 0;

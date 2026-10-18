@@ -1,5 +1,16 @@
 import { createEditor } from "./editor.js";
 import {
+  auth as apiAuth,
+  comments as apiComments,
+  connectRealtime,
+  detectMode,
+  isServer,
+  pages as apiPages,
+  search as apiSearch,
+  teamspaces as apiTeamspaces,
+  workspace as apiWorkspace,
+} from "./api.js";
+import {
   formatShortcut,
   fuzzyRank,
   matchesShortcut,
@@ -284,6 +295,158 @@ function persist({ sidebar = true, topbar = true } = {}) {
   if (sidebar) renderSidebar();
   if (topbar) renderTopbar();
   refreshSidebarTree();
+  scheduleServerSync(currentPage());
+}
+
+/* ---------------- server sync ----------------
+   When the backend is reachable it owns the data. Edits are pushed with a short
+   debounce, and localStorage stays as an offline cache so the demo still works. */
+
+const serverSync = { timer: null, inFlight: false, pending: false };
+
+function scheduleServerSync(page) {
+  if (!isServer() || !page) return;
+  clearTimeout(serverSync.timer);
+  serverSync.timer = setTimeout(() => pushPage(page), 700);
+}
+
+function pageToServer(page) {
+  return {
+    title: page.title,
+    icon: page.icon,
+    cover: page.cover ?? null,
+    section: page.section,
+    teamspaceId: page.teamspaceId ?? null,
+    parentId: page.parentId ?? null,
+    favorite: Boolean(page.favorite),
+    locked: Boolean(page.locked),
+    fullWidth: Boolean(page.fullWidth),
+    smallText: Boolean(page.smallText),
+    font: page.font || "default",
+    trashedAt: page.trashedAt ?? null,
+  };
+}
+
+async function pushPage(page) {
+  if (!isServer() || !page) return;
+  if (serverSync.inFlight) {
+    serverSync.pending = true;
+    return;
+  }
+  serverSync.inFlight = true;
+  try {
+    await apiPages.update(page.id, pageToServer(page));
+    await apiPages.saveBlocks(page.id, page.blocks || []);
+    page.syncedAt = Date.now();
+  } catch (error) {
+    if (error?.status === 404) toast("That page no longer exists on the server");
+  } finally {
+    serverSync.inFlight = false;
+    if (serverSync.pending) {
+      serverSync.pending = false;
+      scheduleServerSync(currentPage());
+    }
+  }
+}
+
+async function pushNewPage(page) {
+  if (!isServer() || !page) return;
+  try {
+    await apiPages.create({ id: page.id, ...pageToServer(page) });
+    await apiPages.saveBlocks(page.id, page.blocks || []);
+    page.blocksLoaded = true;
+  } catch {
+    /* keep working locally; the next edit retries */
+  }
+}
+
+function serverPageToLocal(page) {
+  return {
+    id: page.id,
+    title: page.title,
+    icon: page.icon,
+    cover: page.cover ?? null,
+    section: page.section,
+    teamspaceId: page.teamspaceId,
+    parentId: page.parentId,
+    favorite: Boolean(page.favorite),
+    locked: Boolean(page.locked),
+    fullWidth: Boolean(page.fullWidth),
+    smallText: Boolean(page.smallText),
+    font: page.font || "default",
+    slug: page.slug,
+    trashedAt: page.trashedAt ?? null,
+    updatedAt: page.updatedAt,
+    createdAt: page.createdAt,
+    comments: [],
+    blocks: [],
+    versions: [],
+    lastVersionAt: 0,
+    remote: true,
+  };
+}
+
+/** Load the server workspace into local state, seeding it the first time we see it. */
+async function hydrateFromServer() {
+  const data = await apiWorkspace.load();
+  const serverPages = data.pages || [];
+  const trashed = data.trashed || [];
+
+  if (!serverPages.length && !trashed.length) {
+    for (const page of state.pages) {
+      await pushNewPage(page);
+      await pushNewPageComments(page);
+    }
+    for (const teamspace of state.teamspaces) {
+      await apiTeamspaces.create({
+        id: teamspace.id,
+        name: teamspace.name,
+        icon: teamspace.icon,
+        color: teamspace.color,
+        description: teamspace.description,
+      });
+    }
+    return { seeded: true };
+  }
+
+  const localById = new Map(state.pages.map((page) => [page.id, page]));
+  state.pages = [...serverPages, ...trashed].map((page) => {
+    const local = localById.get(page.id);
+    return {
+      ...serverPageToLocal(page),
+      comments: local?.comments || [],
+      blocks: local?.blocks || [],
+      versions: local?.versions || [],
+    };
+  });
+  state.teamspaces = (data.teamspaces || []).map((teamspace) => ({ ...teamspace, comments: [] }));
+  return { seeded: false };
+}
+
+async function pushNewPageComments(page) {
+  for (const comment of page.comments || []) {
+    try {
+      await apiComments.create({ pageId: page.id, text: comment.text, anchor: comment.anchor });
+    } catch {
+      /* comments are best effort during bootstrap */
+    }
+  }
+}
+
+/** Fetch a page's blocks the first time it is opened while the server owns the data. */
+async function ensurePageBlocks(page) {
+  if (!isServer() || !page || page.blocksLoaded) return;
+  try {
+    const data = await apiPages.get(page.id);
+    if (data?.blocks) page.blocks = data.blocks;
+    page.blocksLoaded = true;
+    if (data?.options?.versions) page.versions = data.options.versions;
+    if (state.activeView.type === "page" && state.activeView.id === page.id) {
+      renderAll({ scrollTop: false });
+    }
+  } catch {
+    page.blocksLoaded = true; // stop retrying on every navigation
+  }
 }
 
 /* Sub-pages created from a Page block need the tree redrawn. */
@@ -977,6 +1140,7 @@ function openPage(id, { scrollTop = true, blockId = null } = {}) {
   if (blockId) {
     requestAnimationFrame(() => editor.scrollToBlock(blockId));
   }
+  ensurePageBlocks(page);
 }
 
 function openTeamspace(id, { scrollTop = true } = {}) {
@@ -1605,6 +1769,7 @@ $("#sidebar-collapse").addEventListener("click", () => {
 
 $("#logout-btn").addEventListener("click", () => {
   clearSession();
+  if (isServer()) apiAuth.logout().catch(() => {});
   window.location.replace("index.html");
 });
 
@@ -3172,14 +3337,51 @@ window.addEventListener("popstate", () => {
   toast("That link doesn't point to a page or teamspace");
 });
 
-function start() {
+async function start() {
+  await detectMode();
+
+  if (isServer()) {
+    try {
+      await hydrateFromServer();
+
+      /* ?realtime=off keeps the stream closed — used by the browser harness so
+         Chrome can finish loading instead of holding an open connection. */
+      if (new URLSearchParams(window.location.search).get("realtime") !== "off") {
+        connectRealtime({
+          "page:updated": (payload) => {
+            if (!payload?.page) return;
+            const page = getPage(state, payload.page.id);
+            if (!page) return;
+            Object.assign(page, payload.page);
+            persist({ sidebar: false, topbar: false });
+            renderSidebar();
+          },
+          "presence:update": (payload) => {
+            if (Array.isArray(payload?.presence) && payload.presence.length) {
+              const count = payload.presence.length;
+              toast(`${count} ${count === 1 ? "person is" : "people are"} here`);
+            }
+          },
+        });
+      }
+    } catch (error) {
+      if (error?.status === 401) {
+        window.location.replace("index.html");
+        return;
+      }
+      toast("Working offline — changes stay in this browser");
+    }
+  }
+
   applyTheme(state.theme === "dark" ? "dark" : "light");
   const route = routeFromLocation();
   const applied = route ? applyRoute(route) : null;
   ensureValidView(state);
+  const active = currentPage();
+  if (active) ensurePageBlocks(active);
   updateUser();
   renderAll({ scrollTop: false });
-  persist();
+  persist({ sidebar: true, topbar: true });
   syncUrl("replace");
   historyReady = true;
   recordHistoryNow();

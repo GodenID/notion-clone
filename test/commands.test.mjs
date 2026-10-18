@@ -8,7 +8,7 @@ import {
   matchesShortcut,
   parseShortcut,
   SHORTCUT_GROUPS,
-} from "../src/app/commands.js";
+} from "../frontend/src/app/commands.js";
 
 let passed = 0;
 let failed = 0;
