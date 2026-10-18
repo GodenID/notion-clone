@@ -32,6 +32,7 @@ import {
 import { createAudit, createRateLimiter, clientIp, LIMITS as RATE_LIMITS } from "./middleware.js";
 import { createMagicLinks } from "./magic-link.js";
 import { createRealtime } from "./realtime.js";
+import { createCollabServer } from "./collab.js";
 import { MAX_UPLOAD_BYTES, createStorage, guessMime, sanitizeName } from "./storage.js";
 import { uid } from "./ids.js";
 import { API, LIMITS, apiUrl, isEmail, normalizeEmail, withinLimits } from "../shared/contracts.js";
@@ -59,6 +60,7 @@ export async function buildServer({ databaseFile = DATABASE_FILE, logger = false
   magic.sweep();
 
   const app = Fastify({ logger, bodyLimit: LIMITS.jsonBytes });
+  const collab = createCollabServer(app.server);
   app.register(cookie);
 
   /* Raw binary uploads: accept any content type and hand back a Buffer. */
@@ -129,12 +131,15 @@ export async function buildServer({ databaseFile = DATABASE_FILE, logger = false
   app.decorate("db", db);
   app.decorate("repo", repo);
   app.decorate("realtime", realtime);
+  app.decorate("collab", collab);
 
   /* ---------------- health ---------------- */
   app.get(apiUrl(API.health.path), async () => ({
     ok: true,
     driver: storage.driver,
     realtimeClients: realtime.clientCount,
+    collabClients: collab.clientCount,
+    collabRooms: collab.roomCount,
     db: databaseFile,
   }));
 
