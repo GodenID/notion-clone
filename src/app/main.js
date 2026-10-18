@@ -276,6 +276,18 @@ function persist({ sidebar = true, topbar = true } = {}) {
   scheduleHistory();
   if (sidebar) renderSidebar();
   if (topbar) renderTopbar();
+  refreshSidebarTree();
+}
+
+/* Sub-pages created from a Page block need the tree redrawn. */
+let sidebarRefreshQueued = false;
+function refreshSidebarTree() {
+  if (sidebarRefreshQueued) return;
+  sidebarRefreshQueued = true;
+  queueMicrotask(() => {
+    sidebarRefreshQueued = false;
+    renderSidebar();
+  });
 }
 
 /* ---------------- undo / redo ---------------- */
@@ -383,6 +395,24 @@ function captureVersion(page) {
 
 const editor = createEditor({
   container: editorEl,
+  onCreatePage: ({ parentId, from } = {}) => {
+    const host = currentPage();
+    if (!host || host.locked) return null;
+    const source = from ? getPage(state, from) : null;
+    const created = createPage(state, {
+      section: host.section,
+      teamspaceId: host.teamspaceId,
+      parentId: parentId ?? host.id,
+      title: source ? `${source.title || "Untitled"} (copy)` : "",
+      icon: source ? source.icon || "📄" : "📄",
+    });
+    if (source) {
+      created.blocks = source.blocks.map((block) => ({ ...structuredClone(block), id: uid() }));
+      created.cover = source.cover ?? null;
+    }
+    persist();
+    return created;
+  },
   onSave: () => {
     const page = currentPage();
     if (page) {
@@ -564,6 +594,16 @@ function blockPlainText(block) {
   if (Array.isArray(block.rows)) parts.push(block.rows.flat().join(" "));
   if (Array.isArray(block.columns)) parts.push(block.columns.map(stripHtml).join(" "));
   if (block.title) parts.push(block.title);
+  if (block.label) parts.push(block.label);
+  if (block.file?.name) parts.push(block.file.name);
+  if (block.attachment?.name) parts.push(block.attachment.name);
+  if (Array.isArray(block.template)) {
+    parts.push(block.template.map((row) => row.text || "").join(" "));
+  }
+  if (block.type === "page" && block.pageId) {
+    const target = getPage(state, block.pageId);
+    if (target) parts.push(target.title || "Untitled");
+  }
   return parts.join(" ").replace(/\s+/g, " ").trim();
 }
 
@@ -590,19 +630,19 @@ function updatePageMeta(page = currentPage()) {
 function applyPageLock(page) {
   const locked = Boolean(page?.locked);
   titleEl.setAttribute("contenteditable", String(!locked));
-  editorEl.querySelectorAll("[contenteditable]").forEach((element) => {
+  editorEl.querySelectorAll("[contenteditable]:not([data-atomic])").forEach((element) => {
     element.setAttribute("contenteditable", locked ? "false" : "true");
-  });
-  editorEl.querySelectorAll(".pagelink-select, .block__date").forEach((element) => {
-    element.disabled = locked;
   });
   editorEl
     .querySelectorAll(
-      ".db-cell-select, .db-cell-date, .db-cell-number, .db-cell-check, .db-filter, .db-sort-prop, .db-sort-dir, .db-board-group"
+      ".pagelink-select, .block__date, .db-cell-select, .db-cell-date, .db-cell-number, .db-cell-check, .db-filter, .db-sort-prop, .db-sort-dir, .db-board-group, .db-cal-nav, .db-cal-add, .db-chip-select"
     )
     .forEach((element) => {
       element.disabled = locked;
     });
+  editorEl.querySelectorAll(".table-actions button, .media-btn, .block-button, .template-button, .page-card, .breadcrumb-item").forEach((element) => {
+    element.toggleAttribute("disabled", locked);
+  });
   if (locked) editor.closeSlash();
 }
 
@@ -2351,6 +2391,14 @@ function exportMarkdown(page) {
         lines.push(`**${text}**`);
         if (block.body) lines.push(stripHtml(block.body), "");
         break;
+      case "toggleh1":
+      case "toggleh2":
+      case "toggleh3": {
+        const hash = "#".repeat(Number(block.type.slice(-1)) || 1);
+        lines.push(`${hash} ${text}`, "");
+        if (block.body) lines.push(stripHtml(block.body), "");
+        break;
+      }
       case "table":
         if (Array.isArray(block.rows) && block.rows.length) {
           const [header, ...rows] = block.rows;
@@ -2380,6 +2428,9 @@ function exportMarkdown(page) {
         break;
       }
       case "columns2":
+      case "columns3":
+      case "columns4":
+      case "columns5":
         lines.push((block.columns || []).map((column) => stripHtml(column)).join("\n\n---\n\n"), "");
         break;
       case "math":
@@ -2394,12 +2445,54 @@ function exportMarkdown(page) {
         }
         break;
       }
+      case "page": {
+        const target = getPage(state, block.pageId);
+        if (target) {
+          lines.push(`[📄 ${target.title || "Untitled"}](${location.origin}/p/${target.slug})`, "");
+        }
+        break;
+      }
+      case "breadcrumb": {
+        const chain = pageBreadcrumb(state, page);
+        lines.push(`Path: ${chain.map((item) => item.title || "Untitled").join(" / ")}`, "");
+        break;
+      }
+      case "button":
+        lines.push(`[${block.label || "Button"}](${block.url || "#"})`, "");
+        break;
+      case "template":
+        lines.push(`**${block.label || "Template"}**`, "");
+        for (const row of block.template || []) {
+          const rowText = stripHtml(row.text || "");
+          if (row.type === "bulleted") lines.push(`- ${rowText}`);
+          else if (row.type === "todo") lines.push(`- [ ] ${rowText}`);
+          else lines.push(rowText);
+        }
+        lines.push("");
+        break;
       case "date":
         lines.push(text, "");
         break;
       case "image":
         if (block.src && !String(block.src).startsWith("data:")) {
           lines.push(`![${stripHtml(block.caption)}](${block.src})`, "");
+        }
+        break;
+      case "video":
+      case "audio": {
+        const mediaSrc = block.src || block.url;
+        if (mediaSrc && !String(mediaSrc).startsWith("data:")) {
+          const kind = block.type === "video" ? "🎬" : "🎵";
+          lines.push(
+            `${kind} [${stripHtml(block.caption) || block.url || "media"}](${mediaSrc})`,
+            ""
+          );
+        }
+        break;
+      }
+      case "file":
+        if (block.file?.url) {
+          lines.push(`[🗂 ${block.file.name || "File"}](${block.file.url})`, "");
         }
         break;
       case "attachment":

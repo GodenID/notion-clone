@@ -11,8 +11,34 @@ const port = Number(portArg > -1 ? process.argv[portArg + 1] : 5173);
 const attachmentsDir = join(root, ".data", "attachments");
 await mkdir(attachmentsDir, { recursive: true });
 
+const mediaDir = join(root, ".data", "media");
+await mkdir(mediaDir, { recursive: true });
+
 const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 const MAX_OOXML_UNCOMPRESSED = 120 * 1024 * 1024;
+const MAX_MEDIA_BYTES = 25 * 1024 * 1024;
+
+const MEDIA_TYPES = {
+  ".mp3": "audio/mpeg",
+  ".wav": "audio/wav",
+  ".oga": "audio/ogg",
+  ".ogg": "audio/ogg",
+  ".m4a": "audio/mp4",
+  ".aac": "audio/aac",
+  ".flac": "audio/flac",
+  ".mp4": "video/mp4",
+  ".webm": "video/webm",
+  ".ogv": "video/ogg",
+  ".mov": "video/quicktime",
+  ".m4v": "video/x-m4v",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".avif": "image/avif",
+  ".pdf": "application/pdf",
+};
 
 const ATTACHMENT_TYPES = {
   ".pdf": { kind: "pdf", mime: "application/pdf" },
@@ -358,6 +384,142 @@ function attachmentRoute(pathname) {
   return match ? { id: match[1], action: match[2] || "" } : null;
 }
 
+/* ---------------- media (audio / video / any file) ---------------- */
+
+function mediaManifestPath(id) {
+  return join(mediaDir, `${id}.json`);
+}
+
+function mediaBlobPath(meta) {
+  return join(mediaDir, `${meta.id}${meta.ext}`);
+}
+
+async function handleMediaUpload(req, res, url) {
+  const name = sanitizeFileName(url.searchParams.get("name"));
+  if (!name) return sendJson(res, 400, { error: "A file name is required." });
+
+  const declared = Number(req.headers["content-length"]);
+  if (Number.isFinite(declared) && declared > MAX_MEDIA_BYTES) {
+    req.resume();
+    return sendJson(res, 413, { error: "The file is larger than 25 MB." });
+  }
+
+  const buffer = await readBody(req, MAX_MEDIA_BYTES);
+  if (!buffer) return sendJson(res, 413, { error: "The file is larger than 25 MB." });
+  if (!buffer.length) return sendJson(res, 422, { error: "The uploaded file is empty." });
+
+  const ext = fileExtension(name);
+  const mime = MEDIA_TYPES[ext] ?? "application/octet-stream";
+  const id = randomUUID();
+  const meta = {
+    id,
+    name,
+    ext,
+    mime,
+    size: buffer.length,
+    sha256: createHash("sha256").update(buffer).digest("hex"),
+    uploadedAt: Date.now(),
+  };
+
+  await writeFile(mediaBlobPath(meta), buffer, { flag: "wx" });
+  await writeFile(mediaManifestPath(id), JSON.stringify(meta), { flag: "wx" });
+  sendJson(res, 201, { ...meta, url: `/api/media/${id}` });
+}
+
+async function loadMediaManifest(id) {
+  try {
+    const raw = await readFile(mediaManifestPath(id), "utf8");
+    const meta = JSON.parse(raw);
+    if (!meta || meta.id !== id) return null;
+    if (typeof meta.name !== "string" || typeof meta.mime !== "string") return null;
+    if (!Number.isFinite(meta.size)) return null;
+    return meta;
+  } catch {
+    return null;
+  }
+}
+
+function inlineDisposition(name) {
+  const ascii = name
+    .replace(/[^\x20-\x7e]/g, "_")
+    .replace(/["\\]/g, "_")
+    .replace(/[\r\n]/g, "");
+  const encoded = encodeURIComponent(name).replace(
+    /['()*]/g,
+    (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`
+  );
+  return `inline; filename="${ascii || "media"}"; filename*=UTF-8''${encoded}`;
+}
+
+function parseRange(header, size) {
+  const match = /^bytes=(\d*)-(\d*)$/.exec(String(header || "").trim());
+  if (!match) return null;
+  const [, rawStart, rawEnd] = match;
+  if (!rawStart && !rawEnd) return null;
+
+  let start;
+  let end;
+  if (!rawStart) {
+    const suffix = Number(rawEnd);
+    if (!Number.isFinite(suffix) || suffix <= 0) return null;
+    start = Math.max(0, size - suffix);
+    end = size - 1;
+  } else {
+    start = Number(rawStart);
+    end = rawEnd ? Number(rawEnd) : size - 1;
+  }
+
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start > end || start >= size) return null;
+  return { start, end: Math.min(end, size - 1) };
+}
+
+async function handleMediaGet(req, res, id, action) {
+  const meta = await loadMediaManifest(id);
+  if (!meta) return sendJson(res, 404, { error: "Media not found." });
+  if (action === "/meta") return sendJson(res, 200, { ...meta, url: `/api/media/${id}` });
+
+  let body;
+  try {
+    body = await readFile(mediaBlobPath(meta));
+  } catch {
+    return sendJson(res, 404, { error: "Media file not found." });
+  }
+
+  const inline = /^(audio|video|image)\//.test(meta.mime) || meta.mime === "application/pdf";
+  const headers = {
+    "Content-Type": meta.mime,
+    "Accept-Ranges": "bytes",
+    "Content-Disposition": inline ? inlineDisposition(meta.name) : contentDisposition(meta.name),
+    "Cache-Control": "private, max-age=300",
+    "X-Content-Type-Options": "nosniff",
+    "Content-Security-Policy": "default-src 'none'; sandbox",
+  };
+
+  const range = parseRange(req.headers.range, body.length);
+  if (range) {
+    const slice = body.subarray(range.start, range.end + 1);
+    res.writeHead(206, {
+      ...headers,
+      "Content-Length": slice.length,
+      "Content-Range": `bytes ${range.start}-${range.end}/${body.length}`,
+    });
+    res.end(req.method === "HEAD" ? undefined : slice);
+    return;
+  }
+
+  res.writeHead(200, { ...headers, "Content-Length": body.length });
+  if (req.method === "HEAD") res.end();
+  else res.end(body);
+}
+
+function mediaRoute(pathname) {
+  const match =
+    /^\/api\/media\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(\/meta)?$/.exec(
+      pathname
+    );
+  return match ? { id: match[1], action: match[2] || "" } : null;
+}
+
 const server = createServer(async (req, res) => {
   try {
     const url = new URL(req.url, "http://localhost");
@@ -378,6 +540,24 @@ const server = createServer(async (req, res) => {
       const route = attachmentRoute(pathname);
       if (!route) return sendJson(res, 404, { error: "Not found." });
       await handleAttachmentGet(res, route.id, route.action);
+      return;
+    }
+
+    if (pathname === "/api/media") {
+      if (req.method !== "POST") {
+        return sendJson(res, 405, { error: "Method not allowed." });
+      }
+      await handleMediaUpload(req, res, url);
+      return;
+    }
+
+    if (pathname.startsWith("/api/media/")) {
+      if (req.method !== "GET" && req.method !== "HEAD") {
+        return sendJson(res, 405, { error: "Method not allowed." });
+      }
+      const route = mediaRoute(pathname);
+      if (!route) return sendJson(res, 404, { error: "Not found." });
+      await handleMediaGet(req, res, route.id, route.action);
       return;
     }
 
@@ -434,4 +614,5 @@ server.listen(port, () => {
   console.log(`Workspace: http://localhost:${port}/app.html`);
   console.log(`Pages:     http://localhost:${port}/p/getting-started`);
   console.log(`Uploads:   ${attachmentsDir}`);
+  console.log(`Media:     ${mediaDir}`);
 });
