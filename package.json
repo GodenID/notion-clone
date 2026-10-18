@@ -1,0 +1,11 @@
+{
+  "name": "notion-clone",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A Notion-style login, workspace, editor, databases, teamspaces, and comments",
+  "type": "module",
+  "scripts": {
+    "dev": "node server.mjs",
+    "start": "node server.mjs --port 4173"
+  }
+}

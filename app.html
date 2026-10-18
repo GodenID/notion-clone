@@ -1,0 +1,576 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <base href="/" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Notion Clone – Workspace</title>
+    <meta
+      name="description"
+      id="meta-description"
+      content="A working Notion-style workspace for notes, docs, teamspaces, and projects."
+    />
+    <link rel="canonical" id="canonical-link" href="" />
+    <meta property="og:title" id="og-title" content="Notion Clone – Workspace" />
+    <meta property="og:description" id="og-description" content="Notes, docs, and teamspaces in one place." />
+    <meta property="og:url" id="og-url" content="" />
+    <meta property="og:type" id="og-type" content="article" />
+    <meta name="twitter:card" content="summary" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230f0f0f'/%3E%3Cpath d='M10 23V9l12 14V9' stroke='white' stroke-width='2.6' fill='none' stroke-linejoin='round' stroke-linecap='round'/%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="src/styles/tokens.css" />
+    <link rel="stylesheet" href="src/styles/app.css" />
+    <link rel="stylesheet" href="src/styles/features.css" />
+    <link rel="stylesheet" href="vendor/katex/katex.min.css" />
+  </head>
+  <body>
+    <div class="app" id="app">
+      <aside class="sidebar" id="sidebar" aria-label="Workspace navigation">
+        <div class="sidebar__inner">
+          <div class="sidebar__header">
+            <button class="ws-switcher" id="ws-switcher">
+              <span class="ws-switcher__avatar" id="ws-avatar">N</span>
+              <span class="ws-switcher__name" id="ws-name">Notion Clone</span>
+              <span class="ws-switcher__chevron"></span>
+            </button>
+            <button class="icon-btn sidebar__collapse" id="sidebar-collapse" aria-label="Close sidebar">
+              <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4">
+                <path d="M10 3 5 8l5 5" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+            </button>
+          </div>
+
+          <div class="sidebar__quick">
+            <button class="side-row" data-action="search">
+              <span class="side-row__icon">
+                <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <circle cx="7" cy="7" r="4.4" /><path d="m10.3 10.3 3 3" stroke-linecap="round" />
+                </svg>
+              </span>
+              <span class="side-row__label">Search</span>
+              <kbd class="side-kbd">⌘K</kbd>
+            </button>
+            <button class="side-row" data-action="home">
+              <span class="side-row__icon">
+                <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <path d="M2.5 7 8 2.5 13.5 7v6a.5.5 0 0 1-.5.5h-3v-4H6v4H3a.5.5 0 0 1-.5-.5V7Z" stroke-linejoin="round" />
+                </svg>
+              </span>
+              <span class="side-row__label">Home</span>
+            </button>
+            <button class="side-row" data-action="inbox">
+              <span class="side-row__icon">
+                <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <path d="M2 9.5h3l1 2h4l1-2h3" stroke-linejoin="round" />
+                  <path d="M3.2 3.5h9.6L14 9.5v3a.5.5 0 0 1-.5.5h-11a.5.5 0 0 1-.5-.5v-3l1.2-6Z" stroke-linejoin="round" />
+                </svg>
+              </span>
+              <span class="side-row__label">Inbox</span>
+            </button>
+          </div>
+
+          <div class="sidebar__scroll" id="sidebar-scroll">
+            <section class="side-section" data-section="favorites" hidden>
+              <header class="side-section__head">
+                <button class="side-section__label" aria-expanded="true">Favorites</button>
+              </header>
+              <div class="page-tree" data-tree="favorites"></div>
+            </section>
+
+            <section class="side-section" data-section="private">
+              <header class="side-section__head">
+                <button class="side-section__label" aria-expanded="true">Private</button>
+                <button class="icon-btn side-section__add" data-new-page="private" aria-label="New private page" title="New private page">
+                  <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M8 3v10M3 8h10" stroke-linecap="round" />
+                  </svg>
+                </button>
+              </header>
+              <div class="page-tree" data-tree="private"></div>
+            </section>
+
+            <section class="side-section" data-section="teamspace">
+              <header class="side-section__head">
+                <button class="side-section__label" aria-expanded="true">Teamspaces</button>
+                <button class="icon-btn side-section__add" id="new-teamspace-btn" aria-label="Create teamspace" title="Create a teamspace">
+                  <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M8 3v10M3 8h10" stroke-linecap="round" />
+                  </svg>
+                </button>
+              </header>
+              <div class="page-tree" data-tree="teamspaces"></div>
+            </section>
+          </div>
+
+          <div class="sidebar__footer">
+            <div class="footer-actions">
+              <button class="side-row side-row--sm" data-action="template">
+                <span class="side-row__icon">▤</span>
+                <span class="side-row__label">Templates</span>
+              </button>
+              <button class="side-row side-row--sm" data-action="trash">
+                <span class="side-row__icon">⌫</span>
+                <span class="side-row__label">Trash</span>
+              </button>
+              <button class="side-row side-row--sm" data-action="settings">
+                <span class="side-row__icon">⚙</span>
+                <span class="side-row__label">Settings</span>
+              </button>
+              <button class="side-row side-row--sm" data-action="theme" id="theme-toggle">
+                <span class="side-row__icon" id="theme-icon">◐</span>
+                <span class="side-row__label" id="theme-label">Dark mode</span>
+              </button>
+            </div>
+
+            <div class="user-row" id="user-row">
+              <span class="user-avatar" id="user-avatar">A</span>
+              <span class="user-meta">
+                <strong id="user-name">Account</strong>
+                <span id="user-email">you@example.com</span>
+              </span>
+              <button class="icon-btn user-row__logout" id="logout-btn" title="Log out" aria-label="Log out">
+                <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <path d="M6 2.5H3.5a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1H6" stroke-linecap="round" />
+                  <path d="m10 5 3 3-3 3M13 8H6" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <div class="sidebar-scrim" id="sidebar-scrim" hidden></div>
+
+      <div class="workspace">
+        <header class="topbar">
+          <div class="topbar__left">
+            <button class="icon-btn topbar__menu" id="sidebar-open" aria-label="Open sidebar">
+              <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4">
+                <path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11" stroke-linecap="round" />
+              </svg>
+            </button>
+            <nav class="breadcrumbs" id="breadcrumbs" aria-label="Breadcrumb"></nav>
+          </div>
+          <div class="topbar__right">
+            <span class="topbar__edited" id="edited-label">Edited just now</span>
+            <button class="topbar__share" id="share-btn">Share</button>
+            <button class="icon-btn comments-btn" id="comments-btn" aria-label="Comments" aria-pressed="false">
+              <svg viewBox="0 0 18 18" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.4">
+                <path d="M15.5 9c0 3.6-3.1 6.5-7 6.5-1 0-2-.2-2.9-.6L2 16l1.2-3.2A6.3 6.3 0 0 1 1.5 9c0-3.6 3.1-6.5 7-6.5s7 2.9 7 6.5Z" stroke-linejoin="round" />
+              </svg>
+              <span class="comments-count" id="comments-count" hidden>0</span>
+            </button>
+            <button class="icon-btn" id="favorite-btn" aria-label="Favorite" aria-pressed="false">
+              <svg viewBox="0 0 18 18" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.4">
+                <path d="m9 2 2.1 4.5 4.9.6-3.6 3.4.9 4.9L9 13l-4.3 2.4.9-4.9L2 7.1l4.9-.6L9 2Z" stroke-linejoin="round" />
+              </svg>
+            </button>
+            <button class="icon-btn" id="page-menu-btn" aria-label="Page options">⋯</button>
+          </div>
+        </header>
+
+        <main class="page-scroll" id="page-scroll">
+          <article class="page" id="page">
+            <div class="page__cover" id="page-cover" hidden>
+              <div class="page__cover-actions">
+                <button class="cover-btn" id="cover-change">Change cover</button>
+                <button class="cover-btn" id="cover-remove">Remove</button>
+              </div>
+            </div>
+
+            <div class="page__body">
+              <div class="page__icon-wrap">
+                <button class="page__icon" id="page-icon" aria-label="Change page icon">📄</button>
+              </div>
+
+              <div class="page__header-tools">
+                <button class="ghost-btn" id="add-cover">Add cover</button>
+              </div>
+
+              <h1 class="page__title" id="page-title" contenteditable="true" spellcheck="false" data-placeholder="Untitled"></h1>
+              <div class="page__meta" id="page-meta">No one else is here</div>
+
+              <div class="editor" id="editor" aria-label="Page content"></div>
+
+              <div class="backlinks" id="backlinks" hidden>
+                <h2>Linked from</h2>
+                <div class="backlinks-list" id="backlinks-list"></div>
+              </div>
+
+              <button class="page__click-below" id="click-below" aria-label="Add a block"></button>
+            </div>
+          </article>
+
+          <section class="teamspace-view" id="teamspace-view" hidden>
+            <div class="ts-cover" id="ts-home-cover"></div>
+            <div class="ts-body">
+              <div class="ts-icon" id="ts-home-icon">📈</div>
+              <div class="ts-title-row">
+                <h1 class="ts-title" id="ts-home-title">Teamspace</h1>
+                <button class="ghost-btn" id="ts-edit">Edit</button>
+              </div>
+              <p class="ts-desc" id="ts-home-desc"></p>
+              <div class="ts-members" id="ts-home-members"></div>
+
+              <section class="ts-member-panel" aria-label="Teamspace members">
+                <div class="ts-member-panel__head">
+                  <h2>Members</h2>
+                  <span class="ts-member-panel__count" id="ts-member-count">0</span>
+                </div>
+                <div class="ts-member-list" id="ts-home-member-list"></div>
+              </section>
+
+              <div class="ts-meta" id="ts-home-meta"></div>
+
+              <div class="ts-toolbar">
+                <h2>Pages</h2>
+                <button class="btn-mini" id="ts-new-page">+ New page</button>
+              </div>
+              <div class="ts-grid" id="ts-home-grid"></div>
+            </div>
+          </section>
+        </main>
+      </div>
+    </div>
+
+    <!-- slash menu -->
+    <div class="slash-menu" id="slash-menu" role="listbox" hidden>
+      <div class="slash-menu__head">
+        <span id="slash-label">Blocks</span>
+      </div>
+      <div class="slash-menu__list" id="slash-list"></div>
+      <div class="slash-menu__empty" id="slash-empty" hidden>No results</div>
+    </div>
+
+    <!-- block action menu -->
+    <div class="popover" id="block-menu" hidden>
+      <button data-block-action="comment">Comment on block</button>
+      <button data-block-action="delete">Delete</button>
+      <button data-block-action="duplicate">Duplicate</button>
+      <button data-block-action="up">Move up</button>
+      <button data-block-action="down">Move down</button>
+      <div class="popover__divider"></div>
+      <button data-block-action="turn-paragraph">Turn into paragraph</button>
+      <button data-block-action="turn-h2">Turn into heading</button>
+      <button data-block-action="turn-todo">Turn into to-do</button>
+    </div>
+
+    <!-- inline formatting toolbar -->
+    <div class="inline-toolbar" id="inline-toolbar" hidden>
+      <button data-format="bold" title="Bold"><b>B</b></button>
+      <button data-format="italic" title="Italic"><i>I</i></button>
+      <button data-format="underline" title="Underline"><u>U</u></button>
+      <button data-format="strikeThrough" title="Strikethrough"><s>S</s></button>
+      <button data-format="code" title="Inline code" class="mono">&lt;/&gt;</button>
+      <span class="inline-toolbar__divider"></span>
+      <button data-format="link" title="Link">🔗</button>
+      <button data-format="comment" title="Comment">💬</button>
+    </div>
+
+    <!-- search -->
+    <div class="modal" id="search-modal" hidden>
+      <div class="modal__scrim" data-close-modal></div>
+      <div class="search" role="dialog" aria-modal="true" aria-label="Search">
+        <div class="search__field">
+          <svg viewBox="0 0 16 16" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.5">
+            <circle cx="7" cy="7" r="4.4" /><path d="m10.3 10.3 3 3" stroke-linecap="round" />
+          </svg>
+          <input id="search-input" type="text" placeholder="Search pages and teamspaces…" autocomplete="off" />
+          <kbd>esc</kbd>
+        </div>
+        <div class="search__results" id="search-results"></div>
+        <div class="search__footer">
+          <span><kbd>↑</kbd><kbd>↓</kbd> to navigate</span>
+          <span><kbd>↵</kbd> to open</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- icon picker -->
+    <div class="popover icon-picker" id="icon-picker" hidden>
+      <div class="icon-picker__grid" id="icon-grid"></div>
+      <button class="icon-picker__clear" id="icon-clear">Remove</button>
+    </div>
+
+    <!-- cover picker -->
+    <div class="popover cover-picker" id="cover-picker" hidden>
+      <div class="cover-picker__grid" id="cover-grid"></div>
+    </div>
+
+    <!-- page options -->
+    <div class="popover" id="page-menu" hidden>
+      <button data-page-action="favorite">Add to favorites</button>
+      <button data-page-action="duplicate">Duplicate page</button>
+      <button data-page-action="move">Move to…</button>
+      <button data-page-action="rename">Rename</button>
+      <button data-page-action="export">Export markdown</button>
+      <div class="popover__divider"></div>
+      <button data-page-action="fullwidth">Full width</button>
+      <button data-page-action="smalltext">Small text</button>
+      <button data-page-action="font">Font: Default</button>
+      <button data-page-action="history">Version history</button>
+      <button data-page-action="lock">Lock page</button>
+      <div class="popover__divider"></div>
+      <button data-page-action="delete" class="danger">Move to trash</button>
+    </div>
+
+    <!-- teamspace options -->
+    <div class="popover" id="teamspace-menu" hidden>
+      <button data-ts-action="open">Open teamspace</button>
+      <button data-ts-action="new-page">New page</button>
+      <button data-ts-action="invite">Invite members</button>
+      <div class="popover__divider"></div>
+      <button data-ts-action="edit">Edit teamspace</button>
+      <button data-ts-action="delete" class="danger">Delete teamspace</button>
+    </div>
+
+    <!-- teamspace create / edit -->
+    <div class="modal modal--center" id="teamspace-modal" hidden>
+      <div class="modal__scrim" data-close-teamspace></div>
+      <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="ts-modal-title">
+        <p class="dialog__eyebrow" id="ts-modal-eyebrow">NEW TEAMSPACE</p>
+        <h2 class="dialog__title" id="ts-modal-title">Create a teamspace</h2>
+        <p class="dialog__text">Teamspaces keep a team's pages, projects, and notes together.</p>
+
+        <label class="field">
+          <span>Name</span>
+          <input id="ts-name" type="text" maxlength="60" placeholder="e.g. Marketing" autocomplete="off" />
+        </label>
+        <label class="field">
+          <span>Description <em>optional</em></span>
+          <textarea id="ts-desc" rows="2" placeholder="What lives here?"></textarea>
+        </label>
+
+        <div class="field">
+          <span>Icon</span>
+          <div class="icon-select" id="ts-icon-grid"></div>
+        </div>
+        <div class="field">
+          <span>Accent</span>
+          <div class="color-select" id="ts-color-grid"></div>
+        </div>
+
+        <p class="dialog__error" id="ts-error" hidden>Give your teamspace a name.</p>
+
+        <div class="dialog__actions">
+          <button class="btn-text danger" id="ts-delete" hidden>Delete teamspace</button>
+          <span class="dialog__spacer"></span>
+          <button class="btn-text" id="ts-cancel">Cancel</button>
+          <button class="btn-primary" id="ts-save">Create teamspace</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- invite members -->
+    <div class="modal modal--center" id="invite-modal" hidden>
+      <div class="modal__scrim" data-close-invite></div>
+      <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="invite-title">
+        <p class="dialog__eyebrow">MEMBERS</p>
+        <h2 class="dialog__title" id="invite-title">Invite to teamspace</h2>
+        <p class="dialog__text" id="invite-subtitle">
+          Add a teammate to this teamspace. They appear in the member list right away.
+        </p>
+
+        <form id="invite-form" autocomplete="off">
+          <label class="field">
+            <span>Name <em>optional</em></span>
+            <input id="invite-name" type="text" maxlength="60" placeholder="e.g. Mia Chen" />
+          </label>
+          <label class="field">
+            <span>Email</span>
+            <input id="invite-email" type="email" maxlength="120" placeholder="name@company.com" />
+          </label>
+          <label class="field">
+            <span>Role</span>
+            <select id="invite-role">
+              <option value="Member">Member</option>
+              <option value="Admin">Admin</option>
+            </select>
+          </label>
+
+          <p class="dialog__error" id="invite-error" hidden></p>
+
+          <div class="dialog__actions">
+            <span class="dialog__spacer"></span>
+            <button class="btn-text" type="button" id="invite-close">Close</button>
+            <button class="btn-primary" type="submit">Add member</button>
+          </div>
+        </form>
+
+        <div class="invite-members">
+          <div class="invite-members__head">
+            <h3>Current members</h3>
+            <span id="invite-member-count">0 members</span>
+          </div>
+          <div class="invite-members__list" id="invite-member-list"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- move page -->
+    <div class="modal modal--center" id="move-modal" hidden>
+      <div class="modal__scrim" data-close-move></div>
+      <div class="dialog dialog--sm" role="dialog" aria-modal="true" aria-labelledby="move-title">
+        <h2 class="dialog__title" id="move-title">Move page</h2>
+        <p class="dialog__text" id="move-subtitle">Choose where this page should live.</p>
+        <div class="move-list" id="move-list"></div>
+        <div class="dialog__actions">
+          <span class="dialog__spacer"></span>
+          <button class="btn-text" id="move-cancel">Cancel</button>
+          <button class="btn-primary" id="move-confirm">Move</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- trash -->
+    <div class="modal modal--center" id="trash-modal" hidden>
+      <div class="modal__scrim" data-close-trash></div>
+      <div class="dialog dialog--lg" role="dialog" aria-modal="true" aria-labelledby="trash-title">
+        <div class="dialog__head">
+          <div>
+            <h2 class="dialog__title" id="trash-title">Trash</h2>
+            <p class="dialog__text">Pages stay here until you restore them or delete them forever.</p>
+          </div>
+          <button class="icon-btn" id="trash-close" aria-label="Close">✕</button>
+        </div>
+        <div class="trash-list" id="trash-list"></div>
+        <div class="dialog__actions">
+          <button class="btn-text danger" id="empty-trash">Empty trash</button>
+          <span class="dialog__spacer"></span>
+          <button class="btn-primary" id="trash-done">Done</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+    <!-- find in page -->
+    <div class="find-bar" id="find-bar" hidden>
+      <input id="find-input" type="text" placeholder="Find in page" autocomplete="off" />
+      <span id="find-count">0/0</span>
+      <button id="find-prev" aria-label="Previous match" title="Previous match">↑</button>
+      <button id="find-next" aria-label="Next match" title="Next match">↓</button>
+      <button id="find-close" aria-label="Close find" title="Close">✕</button>
+    </div>
+
+    <!-- version history -->
+    <div class="modal modal--center" id="history-modal" hidden>
+      <div class="modal__scrim" data-close-history></div>
+      <div class="dialog dialog--sm" role="dialog" aria-modal="true" aria-labelledby="history-title">
+        <h2 class="dialog__title" id="history-title">Version history</h2>
+        <p class="dialog__text" id="history-subtitle">Restore an earlier version of this page.</p>
+        <div class="history-list" id="history-list"></div>
+        <div class="dialog__actions">
+          <span class="dialog__spacer"></span>
+          <button class="btn-primary" id="history-done">Done</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- comments -->
+    <aside class="comments-panel" id="comments-panel" hidden aria-label="Comments">
+      <header class="comments-panel__head">
+        <div>
+          <h2 class="comments-panel__title">Comments <span id="comments-heading-count"></span></h2>
+          <p class="comments-panel__subtitle" id="comments-subtitle">On this page</p>
+        </div>
+        <button class="icon-btn" id="comments-close" aria-label="Close comments">✕</button>
+      </header>
+      <div class="comments-list" id="comments-list"></div>
+      <form class="comments-composer" id="comments-form">
+        <textarea
+          id="comments-input"
+          rows="2"
+          maxlength="2000"
+          placeholder="Add a comment…"
+        ></textarea>
+        <div class="comments-composer__foot">
+          <span>⌘↵ to post</span>
+          <button class="btn-primary" type="submit">Post</button>
+        </div>
+      </form>
+    </aside>
+
+    <!-- share -->
+    <div class="modal modal--center" id="share-modal" hidden>
+      <div class="modal__scrim" data-close-share></div>
+      <div class="dialog dialog--sm" role="dialog" aria-modal="true" aria-labelledby="share-title">
+        <p class="dialog__eyebrow">SHARE</p>
+        <h2 class="dialog__title" id="share-title">Share this page</h2>
+        <p class="dialog__text">Anyone with the link can view it. The URL is readable and canonical.</p>
+        <div class="share-link">
+          <input id="share-url" type="text" readonly />
+          <button class="btn-primary" id="share-copy">Copy link</button>
+        </div>
+        <div class="dialog__actions">
+          <span class="dialog__spacer"></span>
+          <button class="btn-text" id="share-open">Open in new tab</button>
+          <button class="btn-text" id="share-done">Done</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- templates -->
+    <div class="modal modal--center" id="templates-modal" hidden>
+      <div class="modal__scrim" data-close-templates></div>
+      <div class="dialog dialog--lg" role="dialog" aria-modal="true" aria-labelledby="templates-title">
+        <div class="dialog__head">
+          <div>
+            <p class="dialog__eyebrow">TEMPLATES</p>
+            <h2 class="dialog__title" id="templates-title">Start from a template</h2>
+            <p class="dialog__text">Pick a starting point — it opens as a private page you can edit.</p>
+          </div>
+          <button class="icon-btn" id="templates-close" aria-label="Close">✕</button>
+        </div>
+        <div class="template-grid" id="template-grid"></div>
+      </div>
+    </div>
+
+    <!-- settings -->
+    <div class="modal modal--center" id="settings-modal" hidden>
+      <div class="modal__scrim" data-close-settings></div>
+      <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+        <p class="dialog__eyebrow">SETTINGS</p>
+        <h2 class="dialog__title" id="settings-title">Workspace settings</h2>
+        <p class="dialog__text">Profile, workspace name, and appearance are stored in this browser.</p>
+
+        <h3 class="settings__section">Profile</h3>
+        <label class="field">
+          <span>Name</span>
+          <input id="settings-name" type="text" maxlength="60" autocomplete="name" />
+        </label>
+        <label class="field">
+          <span>Email</span>
+          <input id="settings-email" type="email" autocomplete="email" />
+        </label>
+        <div class="field">
+          <span>Avatar color</span>
+          <div class="color-select" id="settings-colors"></div>
+        </div>
+
+        <h3 class="settings__section">Workspace</h3>
+        <label class="field">
+          <span>Workspace name</span>
+          <input id="settings-workspace" type="text" maxlength="40" />
+        </label>
+        <div class="field">
+          <span>Theme</span>
+          <div class="theme-select" id="settings-theme">
+            <button type="button" data-theme-choice="light">Light</button>
+            <button type="button" data-theme-choice="dark">Dark</button>
+          </div>
+        </div>
+
+        <p class="dialog__error" id="settings-error" hidden>Enter a name and a valid email address.</p>
+
+        <div class="dialog__actions">
+          <button class="btn-text danger" id="settings-logout">Log out</button>
+          <span class="dialog__spacer"></span>
+          <button class="btn-text" id="settings-cancel">Cancel</button>
+          <button class="btn-primary" id="settings-save">Save changes</button>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="src/app/main.js"></script>
+  </body>
+</html>

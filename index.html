@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Log in – Notion Clone</title>
+    <meta name="description" content="Log in to your Notion Clone workspace." />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230f0f0f'/%3E%3Cpath d='M10 23V9l12 14V9' stroke='white' stroke-width='2.6' fill='none' stroke-linejoin='round' stroke-linecap='round'/%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="src/styles/tokens.css" />
+    <link rel="stylesheet" href="src/styles/auth.css" />
+  </head>
+  <body class="auth">
+    <main class="auth__shell">
+      <section class="auth__panel">
+        <header class="auth__brand">
+          <svg viewBox="0 0 32 32" width="30" height="30" aria-hidden="true">
+            <rect x="1.4" y="1.4" width="29.2" height="29.2" rx="4.6" fill="none" stroke="currentColor" stroke-width="2.5" />
+            <path d="M10 23.4V8.9l12 14.5V8.9" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          <span>Notion Clone</span>
+        </header>
+
+        <div class="auth__form">
+          <p class="auth__eyebrow">WELCOME BACK</p>
+          <h1>Log in to your workspace</h1>
+          <p class="auth__sub">Notes, docs, and every teamspace — in one place.</p>
+
+          <form id="login-form" novalidate>
+            <label class="auth-field">
+              <span>Email</span>
+              <input
+                id="login-email"
+                name="email"
+                type="email"
+                inputmode="email"
+                autocomplete="email"
+                placeholder="you@company.com"
+              />
+            </label>
+            <p class="auth-error" id="email-error" hidden>Enter a valid email address.</p>
+
+            <label class="auth-field">
+              <span>Full name <em>optional</em></span>
+              <input
+                id="login-name"
+                name="name"
+                type="text"
+                autocomplete="name"
+                placeholder="Alex Morgan"
+                maxlength="60"
+              />
+            </label>
+            <p class="auth-error" id="name-error" hidden>That name looks a little short.</p>
+
+            <button class="auth-submit" id="login-btn" type="submit">
+              <span class="auth-submit__label">Continue</span>
+              <span class="auth-spinner" id="login-spinner" hidden aria-hidden="true"></span>
+            </button>
+          </form>
+
+          <div class="auth-divider"><span>or</span></div>
+
+          <button class="auth-demo" id="demo-btn" type="button">
+            <span class="auth-demo__spark">✦</span>
+            Continue with the demo account
+          </button>
+
+          <p class="auth-note">
+            This is a local clone. There is no password and no server — your session and
+            workspace are stored in this browser.
+          </p>
+        </div>
+
+        <footer class="auth__footer">
+          <span>© 2026 Notion Clone</span>
+          <span>Privacy · Terms</span>
+        </footer>
+      </section>
+
+      <aside class="auth__visual" aria-hidden="true">
+        <div class="visual__glow"></div>
+        <div class="visual__inner">
+          <span class="visual__pill">✦ Built for teams that ship</span>
+          <h2>Your team's brain.<br />All in one place.</h2>
+          <p class="visual__lede">Capture notes, organize projects, and keep every teamspace in sync.</p>
+
+          <div class="visual__preview">
+            <div class="preview__bar">
+              <span class="preview__dots"><i></i><i></i><i></i></span>
+              <span class="preview__tab">◍ Ramp HQ</span>
+            </div>
+            <div class="preview__body">
+              <div class="preview__side">
+                <span class="preview__side-title">Ramp</span>
+                <span class="preview__side-item is-active">▤ Home</span>
+                <span class="preview__side-item">▥ Inbox</span>
+                <span class="preview__side-item">✦ AI</span>
+                <span class="preview__side-label">Teamspaces</span>
+                <span class="preview__side-item">🏢 Ramp HQ</span>
+                <span class="preview__side-item">📈 Growth</span>
+              </div>
+              <div class="preview__page">
+                <div class="preview__icon">🏢</div>
+                <h3>Ramp HQ</h3>
+                <div class="preview__meta">Teamspace · 3 members</div>
+                <div class="preview__block">
+                  <span class="preview__check"></span> Ship the new spend dashboard
+                </div>
+                <div class="preview__block preview__block--done">
+                  <span class="preview__check preview__check--done"></span> Review onboarding flow
+                </div>
+                <div class="preview__block">
+                  <span class="preview__check"></span> Publish Q4 roadmap
+                </div>
+                <div class="preview__callout">✓ <span>Every doc, project, and teamspace in sync.</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="visual__quote">
+            <p>“Notion Clone replaced three tools for us — notes, projects, and teamspaces just live together.”</p>
+            <div class="visual__person">
+              <span class="visual__avatar">MC</span>
+              <span><strong>Mia Chen</strong><small>Product lead, Ramp</small></span>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </main>
+
+    <script type="module" src="src/auth/main.js"></script>
+  </body>
+</html>
