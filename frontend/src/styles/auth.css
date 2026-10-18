@@ -229,6 +229,56 @@ body.auth {
   margin-left: 14px;
 }
 
+.oauth-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 18px 0 12px;
+  color: #969694;
+  font-size: 12px;
+}
+
+.oauth-divider::before,
+.oauth-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: rgba(55, 53, 47, 0.12);
+}
+
+.oauth-buttons {
+  display: flex;
+  gap: 10px;
+}
+
+.oauth-btn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border: 1px solid rgba(55, 53, 47, 0.16);
+  border-radius: 8px;
+  background: #fff;
+  color: #37352f;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.oauth-btn:hover {
+  background: rgba(55, 53, 47, 0.04);
+}
+
+.oauth-btn__icon {
+  font-size: 15px;
+  font-weight: 700;
+}
+
 .auth-field input[type="password"] {
   letter-spacing: 0.06em;
 }

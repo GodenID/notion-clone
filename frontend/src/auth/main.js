@@ -168,6 +168,23 @@ async function boot() {
   if (serverMode) {
     magicLinkBtn.hidden = false;
     forgotPasswordBtn.hidden = false;
+
+    /* Show OAuth buttons only for providers that are actually configured. */
+    fetch("/api/auth/oauth/providers")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        const providers = data?.providers || [];
+        if (!providers.length) return;
+        const divider = document.getElementById("oauth-divider");
+        const buttons = document.getElementById("oauth-buttons");
+        if (divider) divider.hidden = false;
+        if (buttons) buttons.hidden = false;
+        const googleBtn = document.getElementById("oauth-google");
+        const githubBtn = document.getElementById("oauth-github");
+        if (googleBtn) googleBtn.hidden = !providers.some((p) => p.name === "google");
+        if (githubBtn) githubBtn.hidden = !providers.some((p) => p.name === "github");
+      })
+      .catch(() => {});
     forgotPasswordBtn.addEventListener("click", async () => {
       const email = emailInput.value.trim();
       if (!EMAIL_PATTERN.test(email)) {

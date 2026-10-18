@@ -77,6 +77,17 @@
               Email me a sign-in link instead
             </button>
 
+            <div class="oauth-divider" id="oauth-divider" hidden><span>or continue with</span></div>
+
+            <div class="oauth-buttons" id="oauth-buttons" hidden>
+              <a class="oauth-btn oauth-btn--google" id="oauth-google" href="/api/auth/oauth/google">
+                <span class="oauth-btn__icon">G</span> Google
+              </a>
+              <a class="oauth-btn oauth-btn--github" id="oauth-github" href="/api/auth/oauth/github">
+                <span class="oauth-btn__icon">Octocat</span> GitHub
+              </a>
+            </div>
+
             <button class="auth-switch" id="forgot-password-btn" type="button" hidden>
               Forgot your password?
             </button>

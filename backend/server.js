@@ -31,6 +31,16 @@ import {
 } from "./permissions.js";
 import { createAudit, createRateLimiter, clientIp, LIMITS as RATE_LIMITS } from "./middleware.js";
 import { createMagicLinks } from "./magic-link.js";
+import {
+  buildAuthorizationUrl,
+  exchangeCode,
+  fetchOAuthUser,
+  findOrCreateOAuthUser,
+  getProvider,
+  isProviderConfigured,
+  listProviders,
+  rowToUser,
+} from "./oauth.js";
 import { createRealtime } from "./realtime.js";
 import { createCollabServer } from "./collab.js";
 import { MAX_UPLOAD_BYTES, createStorage, guessMime, sanitizeName } from "./storage.js";
@@ -318,6 +328,77 @@ export async function buildServer({ databaseFile = DATABASE_FILE, logger = false
     if (!user) return reply;
     const row = db.prepare("SELECT totp_enabled FROM user_settings WHERE user_id = ?").get(user.id);
     return { enabled: Boolean(row?.totp_enabled) };
+  });
+
+  /* ---------------- OAuth ---------------- */
+  app.get("/auth/oauth/providers", async (request, reply) => {
+    const providers = listProviders()
+      .filter((name) => isProviderConfigured(name))
+      .map((name) => ({ name, displayName: getProvider(name).name }));
+    return { providers };
+  });
+
+  app.get("/auth/oauth/:provider", async (request, reply) => {
+    const provider = request.params.provider;
+    const p = getProvider(provider);
+    if (!p || !isProviderConfigured(provider)) {
+      return reply.code(400).send({ error: `OAuth provider '${provider}' is not configured.` });
+    }
+
+    const clientId = process.env[p.clientIdEnv];
+    const redirectUri = `${request.protocol}://${request.hostname}/auth/oauth/${provider}/callback`;
+    const state = Buffer.from(JSON.stringify({ nonce: uid(), ts: Date.now() })).toString("base64url");
+    reply.setCookie("oauth_state", state, { path: "/", httpOnly: true, sameSite: "lax", maxAge: 600 });
+
+    const url = buildAuthorizationUrl(provider, { clientId, redirectUri, state });
+    return reply.redirect(url);
+  });
+
+  app.get("/auth/oauth/:provider/callback", async (request, reply) => {
+    const provider = request.params.provider;
+    const p = getProvider(provider);
+    if (!p || !isProviderConfigured(provider)) {
+      return reply.code(400).send({ error: `OAuth provider '${provider}' is not configured.` });
+    }
+
+    const { code, state, error: oauthError } = request.query;
+    if (oauthError) {
+      return reply.redirect(`/index.html?oauth_error=${encodeURIComponent(oauthError)}`);
+    }
+    if (!code || !state) {
+      return reply.redirect("/index.html?oauth_error=missing_code");
+    }
+
+    const savedState = request.cookies?.oauth_state;
+    if (!savedState || savedState !== state) {
+      return reply.redirect("/index.html?oauth_error=invalid_state");
+    }
+    reply.clearCookie("oauth_state", { path: "/" });
+
+    try {
+      const clientId = process.env[p.clientIdEnv];
+      const clientSecret = process.env[p.clientSecretEnv];
+      const redirectUri = `${request.protocol}://${request.hostname}/auth/oauth/${provider}/callback`;
+
+      const accessToken = await exchangeCode(provider, { code, clientId, clientSecret, redirectUri });
+      const oauthUser = await fetchOAuthUser(provider, accessToken);
+
+      const { user, isNew } = findOrCreateOAuthUser(db, provider, oauthUser);
+      const session = createSession(db, user.id, request.headers["user-agent"]);
+      reply.header("Set-Cookie", sessionCookie(session.id));
+
+      audit.record(request, {
+        user: rowToUser(user),
+        action: isNew ? "auth.oauth.register" : "auth.oauth.login",
+        target: user.id,
+        detail: { provider },
+      });
+
+      return reply.redirect("/app.html");
+    } catch (error) {
+      audit.record(request, { action: "auth.oauth.failed", detail: { provider, error: error.message } });
+      return reply.redirect(`/index.html?oauth_error=${encodeURIComponent(error.message)}`);
+    }
   });
 
   /* ---------------- passwordless sign-in ---------------- */
