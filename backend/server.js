@@ -12,11 +12,13 @@ import {
   clearedSessionCookie,
   createSession,
   destroySession,
+  generateTotpSecret,
   hashPassword,
   purgeExpiredSessions,
   readSession,
   sessionCookie,
   verifyPassword,
+  verifyTotp,
 } from "./auth.js";
 import * as repo from "./repository.js";
 import {
@@ -220,6 +222,97 @@ export async function buildServer({ databaseFile = DATABASE_FILE, logger = false
     const session = currentUser(request);
     if (!session) return reply.code(401).send({ error: "Not signed in." });
     return { user: session.user };
+  });
+
+  /* ---------------- password reset ---------------- */
+  app.post(`${API.base}/auth/reset/request`, async (request, reply) => {
+    if (!throttle(request, reply, "auth")) return reply;
+    const email = normalizeEmail(request.body?.email);
+    if (!isEmail(email)) return reply.code(400).send({ error: "Enter a valid email address." });
+
+    const row = db.prepare("SELECT id, email FROM users WHERE email = ?").get(email);
+    if (row) {
+      const token = magic.issue(row.id, { purpose: "reset", ip: clientIp(request) });
+      await magic.send(row.email, token, { purpose: "reset" });
+      audit.record(request, { user: { id: row.id, email }, action: "auth.reset.request", target: row.id });
+    }
+    /* Same answer either way so accounts cannot be enumerated. */
+    return { ok: true, message: "If that account exists, a reset link is on its way." };
+  });
+
+  app.post(`${API.base}/auth/reset/verify`, async (request, reply) => {
+    if (!throttle(request, reply, "auth")) return reply;
+    const token = String(request.body?.token ?? "");
+    const password = String(request.body?.password ?? "");
+    if (password.length < 8) {
+      return reply.code(400).send({ error: "Use a password with at least 8 characters." });
+    }
+    const result = magic.consume(token, "reset");
+    if (!result.ok) {
+      audit.record(request, { action: "auth.reset.failed", detail: { reason: result.reason } });
+      return reply.code(400).send({ error: "That link is invalid, used, or expired." });
+    }
+    const hash = await hashPassword(password);
+    db.prepare("UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?").run(
+      hash,
+      Date.now(),
+      result.userId
+    );
+    /* Revoke every session so a stolen session cannot outlive the reset. */
+    db.prepare("DELETE FROM sessions WHERE user_id = ?").run(result.userId);
+    audit.record(request, { action: "auth.reset.complete", target: result.userId });
+    return { ok: true, message: "Password updated. Sign in with the new one." };
+  });
+
+  /* ---------------- two-factor authentication (TOTP) ---------------- */
+  app.post(`${API.base}/auth/2fa/setup`, async (request, reply) => {
+    const user = requireUser(request, reply);
+    if (!user) return reply;
+    const secret = generateTotpSecret();
+    db.prepare(
+      "INSERT INTO user_settings (user_id, totp_secret, totp_enabled, created_at, updated_at) VALUES (?, ?, 0, ?, ?) ON CONFLICT(user_id) DO UPDATE SET totp_secret = excluded.totp_secret, totp_enabled = 0, updated_at = excluded.updated_at"
+    ).run(user.id, secret, Date.now(), Date.now());
+    audit.record(request, { user, action: "auth.2fa.setup", target: user.id });
+    return {
+      secret,
+      otpauthUrl: `otpauth://totp/Notion%20Clone:${encodeURIComponent(user.email)}?secret=${secret}&issuer=Notion%20Clone&digits=6&period=30`,
+      qr: `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(`otpauth://totp/Notion%20Clone:${user.email}?secret=${secret}&issuer=Notion%20Clone`)}`,
+    };
+  });
+
+  app.post(`${API.base}/auth/2fa/verify`, async (request, reply) => {
+    const user = requireUser(request, reply);
+    if (!user) return reply;
+    const code = String(request.body?.code ?? "").replace(/\s+/g, "");
+    const row = db.prepare("SELECT totp_secret, totp_enabled FROM user_settings WHERE user_id = ?").get(user.id);
+    if (!row?.totp_secret) return reply.code(400).send({ error: "Start the setup first." });
+    if (!verifyTotp(row.totp_secret, code)) {
+      audit.record(request, { user, action: "auth.2fa.verify.failed", target: user.id });
+      return reply.code(400).send({ error: "That code is wrong or expired." });
+    }
+    db.prepare("UPDATE user_settings SET totp_enabled = 1, updated_at = ? WHERE user_id = ?").run(Date.now(), user.id);
+    audit.record(request, { user, action: "auth.2fa.enabled", target: user.id });
+    return { ok: true, enabled: true };
+  });
+
+  app.post(`${API.base}/auth/2fa/disable`, async (request, reply) => {
+    const user = requireUser(request, reply);
+    if (!user) return reply;
+    const code = String(request.body?.code ?? "").replace(/\s+/g, "");
+    const row = db.prepare("SELECT totp_secret, totp_enabled FROM user_settings WHERE user_id = ?").get(user.id);
+    if (row?.totp_enabled && !verifyTotp(row.totp_secret, code)) {
+      return reply.code(400).send({ error: "That code is wrong or expired." });
+    }
+    db.prepare("DELETE FROM user_settings WHERE user_id = ?").run(user.id);
+    audit.record(request, { user, action: "auth.2fa.disabled", target: user.id });
+    return { ok: true, enabled: false };
+  });
+
+  app.get(`${API.base}/auth/2fa/status`, async (request, reply) => {
+    const user = requireUser(request, reply);
+    if (!user) return reply;
+    const row = db.prepare("SELECT totp_enabled FROM user_settings WHERE user_id = ?").get(user.id);
+    return { enabled: Boolean(row?.totp_enabled) };
   });
 
   /* ---------------- passwordless sign-in ---------------- */

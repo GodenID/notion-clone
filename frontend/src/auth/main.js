@@ -17,6 +17,7 @@ const modeHint = document.getElementById("mode-hint");
 const localHint = document.getElementById("local-hint");
 const modeToggle = document.getElementById("auth-mode-toggle");
 const magicLinkBtn = document.getElementById("magic-link-btn");
+const forgotPasswordBtn = document.getElementById("forgot-password-btn");
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const MIN_PASSWORD = 8;
@@ -166,6 +167,26 @@ async function boot() {
   serverMode = (await detectMode()) === "server";
   if (serverMode) {
     magicLinkBtn.hidden = false;
+    forgotPasswordBtn.hidden = false;
+    forgotPasswordBtn.addEventListener("click", async () => {
+      const email = emailInput.value.trim();
+      if (!EMAIL_PATTERN.test(email)) {
+        emailError.hidden = false;
+        emailError.textContent = "Enter your email address first.";
+        return;
+      }
+      setLoading(true);
+      try {
+        const response = await auth.requestPasswordReset(email);
+        setLoading(false);
+        passwordError.hidden = false;
+        passwordError.textContent =
+          response?.message || "If that account exists, a reset link is on its way.";
+      } catch (error) {
+        setLoading(false);
+        showError(error.message || "Could not send the reset link.");
+      }
+    });
     magicLinkBtn.addEventListener("click", async () => {
       const email = emailInput.value.trim();
       if (!EMAIL_PATTERN.test(email)) {

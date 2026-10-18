@@ -188,6 +188,18 @@
                 <span class="role-badge" id="role-badge" hidden></span>
               </div>
 
+      <dialog class="app-dialog" id="app-dialog">
+        <form method="dialog" class="app-dialog__form">
+          <h3 class="app-dialog__title" id="app-dialog-title"></h3>
+          <p class="app-dialog__message" id="app-dialog-message" hidden></p>
+          <input class="app-dialog__input" id="app-dialog-input" type="text" hidden />
+          <div class="app-dialog__actions">
+            <button class="app-dialog__cancel" value="cancel" type="submit">Cancel</button>
+            <button class="app-dialog__ok" value="ok" type="submit">OK</button>
+          </div>
+        </form>
+      </dialog>
+
       <dialog class="share-dialog" id="share-dialog">
         <form method="dialog" class="share-dialog__form">
           <header class="share-dialog__header">

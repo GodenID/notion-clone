@@ -113,6 +113,24 @@ export const auth = {
   async verifyMagicLink(token) {
     return post("/auth/magic/verify", { token });
   },
+  async requestPasswordReset(email) {
+    return post("/auth/reset/request", { email });
+  },
+  async resetPassword(token, password) {
+    return post("/auth/reset/verify", { token, password });
+  },
+  async totpSetup() {
+    return post("/auth/2fa/setup", {});
+  },
+  async totpVerify(code) {
+    return post("/auth/2fa/verify", { code });
+  },
+  async totpDisable(code) {
+    return post("/auth/2fa/disable", { code });
+  },
+  async totpStatus() {
+    return get("/auth/2fa/status");
+  },
 };
 
 /* ---------------- workspace ---------------- */

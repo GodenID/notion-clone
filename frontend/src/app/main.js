@@ -622,6 +622,8 @@ const editor = createEditor({
     }
   },
   onToast: toast,
+  prompt: promptDialog,
+  confirm: confirmDialog,
   getPages: () => state.pages.filter(isLive),
   onOpenPage: (id, options) => openPage(id, options),
   onComment: (anchor) => startBlockComment(anchor),
@@ -2123,14 +2125,15 @@ pageMenu.addEventListener("click", (event) => {
 
   if (action === "rename") {
     if (!requireUnlocked(page)) return;
-    const value = window.prompt("Rename page", page.title || "Untitled");
-    if (value === null) return;
-    page.title = value.trim();
-    page.updatedAt = Date.now();
-    updatePageSlug(state, page);
-    persist();
-    renderAll({ scrollTop: false });
-    syncUrl("replace");
+    (async () => {
+      const value = await promptDialog("Rename page", page.title || "Untitled");
+      if (value === null) return;
+      page.title = value.trim();
+      page.updatedAt = Date.now();
+      updatePageSlug(state, page);
+      persist();
+      toast("Page renamed");
+    })();
     return;
   }
 
@@ -2311,21 +2314,18 @@ function deleteTeamspaceFlow(id) {
   const teamspace = getTeamspace(state, id);
   if (!teamspace) return;
   const count = state.pages.filter((page) => page.teamspaceId === id).length;
-  const message = `Delete "${teamspace.name}"?${
-    count ? `\n\n${count} ${count === 1 ? "page" : "pages"} will be moved to Private.` : ""
-  }`;
-  if (!window.confirm(message)) return;
-
-  deleteTeamspace(state, id);
-  if (state.activeView.type === "teamspace" && state.activeView.id === id) {
-    const first = state.pages.find(isLive);
-    state.activeView = first ? { type: "page", id: first.id } : { type: "page", id: null };
-  }
-  ensureValidView(state);
-  persist();
-  renderAll();
-  syncUrl("replace");
-  toast("Teamspace deleted · pages moved to Private");
+  const message = `Delete "${teamspace.name}"?${count ? `\n\n${count} ${count === 1 ? "page" : "pages"} will be moved to Private.` : ""}`;
+  (async () => {
+    if (!(await confirmDialog(message))) return;
+    deleteTeamspace(state, id);
+    if (state.activeView.type === "teamspace" && state.activeView.id === id) {
+      const first = state.pages.find(isLive);
+      state.activeView = first ? { type: "page", id: first.id } : { type: "page", id: null };
+    }
+    ensureValidView(state);
+    persist();
+    toast("Teamspace deleted");
+  })();
 }
 
 /* ---------------- teamspace modal ---------------- */
@@ -2539,7 +2539,13 @@ function removeTeamspaceMember(member) {
   const teamspace = getTeamspace(state, invitingTeamspaceId);
   if (!teamspace || !member) return;
   const label = member.name || "this member";
-  if (!window.confirm(`Remove ${label} from ${teamspace.name}?`)) return;
+  (async () => {
+    if (!(await confirmDialog(`Remove ${label} from ${teamspace.name}?`))) return;
+    removeMember(state, teamspace, member);
+    persist();
+    toast("Member removed");
+  })();
+  return;
 
   teamspace.members = (teamspace.members || []).filter((item) => item.id !== member.id);
   persist();
@@ -2742,14 +2748,16 @@ function renderTrashList() {
     purge.className = "danger";
     purge.textContent = "Delete";
     purge.addEventListener("click", () => {
-      if (!window.confirm(`Delete "${page.title || "Untitled"}" forever?`)) return;
-      purgePage(state, page.id);
-      ensureValidView(state);
-      persist();
-      renderAll({ scrollTop: false });
-      syncUrl("replace");
-      renderTrashList();
-      toast("Page deleted forever");
+      (async () => {
+        if (!(await confirmDialog(`Delete "${page.title || "Untitled"}" forever?`))) return;
+        purgePage(state, page.id);
+        ensureValidView(state);
+        persist();
+        renderAll({ scrollTop: false });
+        syncUrl("replace");
+        renderTrashList();
+        toast("Page deleted forever");
+      })();
     });
 
     actions.append(restore, purge);
@@ -2763,16 +2771,15 @@ $("#empty-trash").addEventListener("click", () => {
     toast("Trash is already empty");
     return;
   }
-  if (!window.confirm("Delete everything in the trash forever?")) return;
-  emptyTrash(state);
-  ensureValidView(state);
-  persist();
-  renderAll({ scrollTop: false });
-  syncUrl("replace");
-  renderTrashList();
-  toast("Trash emptied");
+  (async () => {
+    if (!(await confirmDialog("Delete everything in the trash forever?"))) return;
+    emptyTrash(state);
+    ensureValidView(state);
+    persist();
+    renderAll({ scrollTop: false });
+    toast("Trash emptied");
+  })();
 });
-
 $("#trash-close").addEventListener("click", closeTrash);
 $("#trash-done").addEventListener("click", closeTrash);
 trashModal.addEventListener("click", (event) => {
@@ -3352,6 +3359,61 @@ import {
   createOnboarding,
   createShortcutSheet,
 } from "./overlays.js";
+
+/* ---------------- in-app dialog (replaces window.prompt / window.confirm) ---------------- */
+const appDialog = document.getElementById("app-dialog");
+const appDialogTitle = document.getElementById("app-dialog-title");
+const appDialogMessage = document.getElementById("app-dialog-message");
+const appDialogInput = document.getElementById("app-dialog-input");
+const appDialogForm = appDialog?.querySelector("form");
+
+function showDialog({ title = "", message = "", defaultValue = "", input = false, okLabel = "OK", cancelLabel = "Cancel" } = {}) {
+  return new Promise((resolve) => {
+    if (!appDialog) {
+      resolve(input ? window.prompt(title, defaultValue) : window.confirm(message || title));
+      return;
+    }
+    appDialogTitle.textContent = title;
+    appDialogMessage.hidden = !message;
+    appDialogMessage.textContent = message;
+    appDialogInput.hidden = !input;
+    appDialogInput.value = defaultValue;
+    const okButton = appDialog.querySelector(".app-dialog__ok");
+    const cancelButton = appDialog.querySelector(".app-dialog__cancel");
+    okButton.textContent = okLabel;
+    cancelButton.textContent = cancelLabel;
+
+    const cleanup = () => {
+      appDialog.removeEventListener("close", onClose);
+      okButton.removeEventListener("click", onOk);
+    };
+    const onOk = (event) => {
+      event.preventDefault();
+      const value = input ? appDialogInput.value : true;
+      cleanup();
+      appDialog.close("ok");
+      resolve(value);
+    };
+    const onClose = () => {
+      cleanup();
+      resolve(input ? null : false);
+    };
+
+    appDialog.addEventListener("close", onClose, { once: true });
+    okButton.addEventListener("click", onOk);
+    if (typeof appDialog.showModal === "function") appDialog.showModal();
+    else appDialog.setAttribute("open", "");
+    if (input) setTimeout(() => appDialogInput.focus(), 30);
+  });
+}
+
+function promptDialog(title, defaultValue = "") {
+  return showDialog({ title, input: true, defaultValue });
+}
+
+function confirmDialog(message) {
+  return showDialog({ title: "Confirm", message, okLabel: "Yes", cancelLabel: "Cancel" });
+}
 
 /* ---------------- command palette / shortcuts / onboarding ---------------- */
 const COMMANDS = [

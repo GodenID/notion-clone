@@ -62,6 +62,75 @@ export function purgeExpiredSessions(db) {
   return db.prepare("DELETE FROM sessions WHERE expires_at < ?").run(Date.now()).changes;
 }
 
+/* TOTP helpers — RFC 6238, 6 digits, 30 second step, SHA-1. */
+function base32Encode(buffer) {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+  let bits = 0;
+  let value = 0;
+  let output = "";
+  for (const byte of buffer) {
+    value = (value << 8) | byte;
+    bits += 8;
+    while (bits >= 5) {
+      output += alphabet[(value >>> (bits - 5)) & 31];
+      bits -= 5;
+    }
+  }
+  if (bits > 0) output += alphabet[(value << (5 - bits)) & 31];
+  while (output.length % 8 !== 0) output += "=";
+  return output;
+}
+
+function base32Decode(text) {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+  const cleaned = String(text).replace(/=+$/, "").toUpperCase().replace(/\\s+/g, "");
+  let bits = 0;
+  let value = 0;
+  const out = [];
+  for (const char of cleaned) {
+    const index = alphabet.indexOf(char);
+    if (index < 0) throw new Error("invalid base32");
+    value = (value << 5) | index;
+    bits += 5;
+    if (bits >= 8) {
+      out.push((value >>> (bits - 8)) & 255);
+      bits -= 8;
+    }
+  }
+  return Buffer.from(out);
+}
+
+export function generateTotpSecret() {
+  return base32Encode(randomBytes(20));
+}
+
+export function verifyTotp(secret, code, { window = 1 } = {}) {
+  const expected = String(code || "").replace(/\\s+/g, "");
+  if (!/^\\d{6}$/.test(expected)) return false;
+  const key = base32Decode(secret);
+  const step = 30;
+  const now = Math.floor(Date.now() / 1000 / step);
+  for (let offset = -window; offset <= window; offset += 1) {
+    const counter = now + offset;
+    const buffer = Buffer.alloc(8);
+    buffer.writeBigUInt64BE(BigInt(counter));
+    const hmac = createHmac("sha1", key).update(buffer).digest();
+    const otp = hotp(hmac, 6);
+    if (timingSafeEqual(Buffer.from(otp), Buffer.from(expected))) return true;
+  }
+  return false;
+}
+
+function hotp(hmac, digits) {
+  const offset = hmac[hmac.length - 1] & 0x0f;
+  const binary =
+    ((hmac[offset] & 0x7f) << 24) |
+    ((hmac[offset + 1] & 0xff) << 16) |
+    ((hmac[offset + 2] & 0xff) << 8) |
+    (hmac[offset + 3] & 0xff);
+  return String(binary % 10 ** digits).padStart(digits, "0");
+}
+
 export const SESSION_COOKIE = "notion_session";
 
 export function sessionCookie(id, { secure = false, maxAge = SESSION_TTL / 1000 } = {}) {

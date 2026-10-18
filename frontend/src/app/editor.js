@@ -388,7 +388,12 @@ export function createEditor({
   onSyncedUpdate,
   onCreatePage,
   getMembers,
+  prompt,
+  confirm,
 }) {
+  const nativePrompt = (title, value) => window.prompt(title, value);
+  const promptDialog = typeof prompt === "function" ? prompt : nativePrompt;
+  const confirmDialog = typeof confirm === "function" ? confirm : (message) => confirmDialog(message);
   let page = null;
   let activeBlockId = null;
   let dragId = null;
@@ -845,7 +850,7 @@ export function createEditor({
         event.stopPropagation();
         const view = (block.views || []).find((item) => item.id === dataset.view);
         if (!view) return true;
-        const name = window.prompt("View name", view.name);
+        const name = promptDialog("View name", view.name);
         if (name === null) return true;
         view.name = name.trim() || view.name;
         commit();
@@ -2909,7 +2914,7 @@ export function createEditor({
   function editTemplate(block) {
     const rows = Array.isArray(block.template) ? block.template : [];
     const text = rows.map((row) => row.text || "").join("\\n");
-    const value = window.prompt(
+    const value = promptDialog(
       "One block per line. Prefix with # / ## / ### for headings, - for bullets, [ ] for to-do.",
       text
     );
@@ -3817,7 +3822,7 @@ export function createEditor({
         if (kind === "image") {
           const current =
             block.src && !block.src.startsWith("data:") ? block.src : "https://";
-          const value = window.prompt("Image URL", current);
+          const value = promptDialog("Image URL", current);
           if (value === null) return;
           const clean = safeUrl(value, { image: true });
           if (!clean) {
@@ -3832,7 +3837,7 @@ export function createEditor({
         }
 
         const promptText = MEDIA_COPY[kind]?.prompt || "URL";
-        const value = window.prompt(promptText, block.url || "https://");
+        const value = promptDialog(promptText, block.url || "https://");
         if (value === null) return;
         const clean = safeUrl(value);
         if (!clean) {
@@ -3877,7 +3882,7 @@ export function createEditor({
         return;
       }
       if (action === "label") {
-        const value = window.prompt("Button label", block.label || "Button");
+        const value = promptDialog("Button label", block.label || "Button");
         if (value === null) return;
         block.label = value.trim() || "Button";
         save();
@@ -3885,7 +3890,7 @@ export function createEditor({
         return;
       }
       if (action === "url") {
-        const value = window.prompt("Button link", block.url || "https://");
+        const value = promptDialog("Button link", block.url || "https://");
         if (value === null) return;
         const clean = safeUrl(value);
         if (!clean) {
@@ -3913,7 +3918,7 @@ export function createEditor({
         return;
       }
       if (action === "label") {
-        const value = window.prompt("Template label", block.label || "Template");
+        const value = promptDialog("Template label", block.label || "Template");
         if (value === null) return;
         block.label = value.trim() || "Template";
         save();
@@ -3998,7 +4003,7 @@ export function createEditor({
         render();
         return;
       }
-      const value = window.prompt("YouTube or Vimeo URL", block.url || "https://");
+      const value = promptDialog("YouTube or Vimeo URL", block.url || "https://");
       if (value === null) return;
       const clean = safeUrl(value);
       if (!clean) {
@@ -4021,7 +4026,7 @@ export function createEditor({
         render();
         return;
       }
-      const value = window.prompt("Bookmark URL", block.url || "https://");
+      const value = promptDialog("Bookmark URL", block.url || "https://");
       if (value === null) return;
       const clean = safeUrl(value);
       if (!clean) {
@@ -4029,7 +4034,7 @@ export function createEditor({
         return;
       }
       block.url = clean;
-      const title = window.prompt("Bookmark title", block.title || clean);
+      const title = promptDialog("Bookmark title", block.title || clean);
       block.title = (title || clean).trim();
       save();
       render();
@@ -4599,7 +4604,7 @@ export function createEditor({
     }
 
     if (format === "link") {
-      const url = window.prompt("Link URL", "https://");
+      const url = promptDialog("Link URL", "https://");
       if (url) document.execCommand("createLink", false, url);
     } else if (format === "code") {
       const text = sel?.toString() ?? "";

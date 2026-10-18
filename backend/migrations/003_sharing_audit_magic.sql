@@ -24,6 +24,15 @@ CREATE TABLE IF NOT EXISTS audit_log (
 CREATE INDEX IF NOT EXISTS audit_recent ON audit_log(created_at DESC);
 CREATE INDEX IF NOT EXISTS audit_user ON audit_log(user_id, created_at DESC);
 
+-- 004_user_settings.sql — per-user security settings (TOTP, etc.)
+CREATE TABLE IF NOT EXISTS user_settings (
+  user_id      TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  totp_secret  TEXT NOT NULL DEFAULT '',
+  totp_enabled INTEGER NOT NULL DEFAULT 0,
+  created_at   INTEGER NOT NULL,
+  updated_at   INTEGER NOT NULL
+);
+
 -- 005_magic_links.sql — passwordless sign-in and teamspace invitations
 CREATE TABLE IF NOT EXISTS login_tokens (
   id          TEXT PRIMARY KEY,

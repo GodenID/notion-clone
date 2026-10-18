@@ -605,6 +605,17 @@ kbd {
   opacity: 0.62;
 }
 
+.app-dialog { border: 0; border-radius: 12px; padding: 0; width: min(420px, 92vw); box-shadow: 0 24px 64px rgba(0, 0, 0, 0.2); overflow: hidden; }
+.app-dialog::backdrop { background: rgba(0, 0, 0, 0.35); backdrop-filter: blur(2px); }
+.app-dialog__form { display: flex; flex-direction: column; gap: 12px; padding: 20px; }
+.app-dialog__title { margin: 0; font-size: 17px; }
+.app-dialog__message { margin: 0; color: #6b6b68; font-size: 13px; line-height: 1.5; }
+.app-dialog__input { padding: 10px 12px; border: 1px solid rgba(55, 53, 47, 0.16); border-radius: 8px; font: inherit; font-size: 14px; }
+.app-dialog__actions { display: flex; justify-content: flex-end; gap: 8px; }
+.app-dialog__cancel, .app-dialog__ok { padding: 8px 16px; border: 0; border-radius: 8px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.app-dialog__cancel { background: rgba(55, 53, 47, 0.08); color: #37352f; }
+.app-dialog__ok { background: #37352f; color: #fff; }
+
 .role-badge {
   padding: 4px 10px;
   border-radius: 999px;
