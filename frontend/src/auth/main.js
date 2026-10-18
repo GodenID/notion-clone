@@ -174,15 +174,40 @@ async function boot() {
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         const providers = data?.providers || [];
-        if (!providers.length) return;
         const divider = document.getElementById("oauth-divider");
         const buttons = document.getElementById("oauth-buttons");
-        if (divider) divider.hidden = false;
-        if (buttons) buttons.hidden = false;
         const googleBtn = document.getElementById("oauth-google");
         const githubBtn = document.getElementById("oauth-github");
-        if (googleBtn) googleBtn.hidden = !providers.some((p) => p.name === "google");
-        if (githubBtn) githubBtn.hidden = !providers.some((p) => p.name === "github");
+
+        /* Always show the OAuth area in server mode so users know it exists;
+           hide individual buttons for providers that are not configured and
+           explain why when clicked. */
+        if (divider) divider.hidden = false;
+        if (buttons) buttons.hidden = false;
+
+        const googleConfigured = providers.some((p) => p.name === "google");
+        const githubConfigured = providers.some((p) => p.name === "github");
+
+        if (googleBtn) {
+          googleBtn.hidden = false;
+          if (!googleConfigured) {
+            googleBtn.classList.add("oauth-btn--disabled");
+            googleBtn.addEventListener("click", (event) => {
+              event.preventDefault();
+              showError("Google login is not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in your environment.");
+            });
+          }
+        }
+        if (githubBtn) {
+          githubBtn.hidden = false;
+          if (!githubConfigured) {
+            githubBtn.classList.add("oauth-btn--disabled");
+            githubBtn.addEventListener("click", (event) => {
+              event.preventDefault();
+              showError("GitHub login is not configured. Set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET in your environment.");
+            });
+          }
+        }
       })
       .catch(() => {});
     forgotPasswordBtn.addEventListener("click", async () => {

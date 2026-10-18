@@ -274,6 +274,11 @@ body.auth {
   background: rgba(55, 53, 47, 0.04);
 }
 
+.oauth-btn--disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .oauth-btn__icon {
   font-size: 15px;
   font-weight: 700;

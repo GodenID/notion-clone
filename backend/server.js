@@ -331,14 +331,14 @@ export async function buildServer({ databaseFile = DATABASE_FILE, logger = false
   });
 
   /* ---------------- OAuth ---------------- */
-  app.get("/auth/oauth/providers", async (request, reply) => {
+  app.get(`${API.base}/auth/oauth/providers`, async (request, reply) => {
     const providers = listProviders()
       .filter((name) => isProviderConfigured(name))
       .map((name) => ({ name, displayName: getProvider(name).name }));
     return { providers };
   });
 
-  app.get("/auth/oauth/:provider", async (request, reply) => {
+  app.get(`${API.base}/auth/oauth/:provider`, async (request, reply) => {
     const provider = request.params.provider;
     const p = getProvider(provider);
     if (!p || !isProviderConfigured(provider)) {
@@ -354,7 +354,7 @@ export async function buildServer({ databaseFile = DATABASE_FILE, logger = false
     return reply.redirect(url);
   });
 
-  app.get("/auth/oauth/:provider/callback", async (request, reply) => {
+  app.get(`${API.base}/auth/oauth/:provider/callback`, async (request, reply) => {
     const provider = request.params.provider;
     const p = getProvider(provider);
     if (!p || !isProviderConfigured(provider)) {
