@@ -10,6 +10,7 @@ import {
   teamspaces as apiTeamspaces,
   workspace as apiWorkspace,
 } from "./api.js";
+import { drain, enqueue, startScheduler, depth as outboxDepth } from "./sync.js";
 import {
   formatShortcut,
   fuzzyRank,
@@ -297,7 +298,6 @@ function persist({ sidebar = true, topbar = true } = {}) {
   refreshSidebarTree();
   setSyncStatus("saving");
   scheduleServerSync(currentPage());
-  syncStatusTimer = setTimeout(() => setSyncStatus("saved"), 900);
 }
 
 /* ---------------- server sync ----------------
@@ -309,7 +309,10 @@ const serverSync = { timer: null, inFlight: false, pending: false };
 function scheduleServerSync(page) {
   if (!isServer() || !page) return;
   clearTimeout(serverSync.timer);
-  serverSync.timer = setTimeout(() => pushPage(page), 700);
+  serverSync.timer = setTimeout(() => {
+    enqueue(page, page.blocks || []);
+    drain({ apiPages }).then(() => setSyncStatus(outboxDepth() ? "saving" : "saved"));
+  }, 700);
 }
 
 function pageToServer(page) {
@@ -3474,8 +3477,9 @@ async function start() {
   if (isServer()) {
     try {
       await hydrateFromServer();
+      startScheduler({ apiPages });
 
-      /* ?realtime=off keeps the stream closed — used by the browser harness so
+      /* ?realtime=off keeps the stream closed - used by the browser harness so
          Chrome can finish loading instead of holding an open connection. */
       if (new URLSearchParams(window.location.search).get("realtime") !== "off") {
         connectRealtime({
