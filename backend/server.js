@@ -347,7 +347,7 @@ export async function buildServer({ databaseFile = DATABASE_FILE, logger = false
     }
 
     const clientId = process.env[p.clientIdEnv];
-    const redirectUri = `${request.protocol}://${request.headers.host}/auth/oauth/${provider}/callback`;
+    const redirectUri = `${request.protocol}://${request.headers.host}/api/auth/oauth/${provider}/callback`;
     const state = Buffer.from(JSON.stringify({ nonce: uid(), ts: Date.now() })).toString("base64url");
     reply.setCookie("oauth_state", state, { path: "/", httpOnly: true, sameSite: "lax", maxAge: 600 });
 
@@ -379,7 +379,7 @@ export async function buildServer({ databaseFile = DATABASE_FILE, logger = false
     try {
       const clientId = process.env[p.clientIdEnv];
       const clientSecret = process.env[p.clientSecretEnv];
-      const redirectUri = `${request.protocol}://${request.headers.host}/auth/oauth/${provider}/callback`;
+      const redirectUri = `${request.protocol}://${request.headers.host}/api/auth/oauth/${provider}/callback`;
 
       const accessToken = await exchangeCode(provider, { code, clientId, clientSecret, redirectUri });
       const oauthUser = await fetchOAuthUser(provider, accessToken);
