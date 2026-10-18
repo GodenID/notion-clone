@@ -56,6 +56,7 @@ export default function Workspace() {
           <h2>Welcome, {user?.name}</h2>
           <p>Pick a page from the sidebar, or open the vanilla editor at <a href="/app.html">/app.html</a>.</p>
           <p><Link to="/richtext">Try the ProseMirror rich-text editor →</Link></p>
+          <p><Link to="/collab">Try collaborative editing (Yjs) →</Link></p>
           <p className="shell__note">
             This React shell is Phase 3 in progress. ProseMirror rich text is live;
             Yjs collaboration, offline sync, and the full editor migration follow.

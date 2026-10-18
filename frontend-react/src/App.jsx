@@ -5,6 +5,7 @@ import Workspace from "./pages/Workspace.jsx";
 import PageView from "./pages/PageView.jsx";
 import Settings from "./pages/Settings.jsx";
 import RichTextDemo from "./pages/RichTextDemo.jsx";
+import CollabDemo from "./pages/CollabDemo.jsx";
 
 export default function App() {
   return (
@@ -15,6 +16,7 @@ export default function App() {
         <Route path="/p/:slug" element={<Protected><PageView /></Protected>} />
         <Route path="/settings" element={<Protected><Settings /></Protected>} />
         <Route path="/richtext" element={<Protected><RichTextDemo /></Protected>} />
+        <Route path="/collab" element={<Protected><CollabDemo /></Protected>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </AuthProvider>
