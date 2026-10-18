@@ -439,13 +439,34 @@ async function ensurePageBlocks(page) {
   try {
     const data = await apiPages.get(page.id);
     if (data?.blocks) page.blocks = data.blocks;
+    if (data?.role) page.role = data.role;
+    if (data?.permissions) page.permissions = data.permissions;
     page.blocksLoaded = true;
     if (data?.options?.versions) page.versions = data.options.versions;
     if (state.activeView.type === "page" && state.activeView.id === page.id) {
       renderAll({ scrollTop: false });
+      applyPermissionUI(page);
     }
   } catch {
     page.blocksLoaded = true; // stop retrying on every navigation
+  }
+}
+
+function applyPermissionUI(page) {
+  const badge = document.getElementById("role-badge");
+  const title = document.getElementById("page-title");
+  if (!badge || !title) return;
+  const role = page?.role || (page?.ownerId ? "owner" : "");
+  const writable = page?.permissions?.write ?? true;
+  badge.textContent = role ? role.charAt(0).toUpperCase() + role.slice(1) : "";
+  badge.hidden = !role || role === "owner";
+  title.setAttribute("contenteditable", String(writable));
+  title.classList.toggle("is-readonly", !writable);
+  const editor = document.getElementById("editor");
+  if (editor) editor.classList.toggle("is-readonly", !writable);
+  if (!writable && !page._readOnlyNotified) {
+    page._readOnlyNotified = true;
+    toast("This page is read-only for you");
   }
 }
 

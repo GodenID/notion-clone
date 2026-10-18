@@ -107,6 +107,12 @@ export const auth = {
   async me() {
     return get(API.auth.me.path);
   },
+  async requestMagicLink(email) {
+    return post("/auth/magic/request", { email });
+  },
+  async verifyMagicLink(token) {
+    return post("/auth/magic/verify", { token });
+  },
 };
 
 /* ---------------- workspace ---------------- */

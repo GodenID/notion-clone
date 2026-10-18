@@ -19,6 +19,16 @@ import {
   verifyPassword,
 } from "./auth.js";
 import * as repo from "./repository.js";
+import {
+  ACTIONS,
+  accessFor,
+  assertAccess,
+  listPageMembers,
+  sharePage,
+  unsharePage,
+} from "./permissions.js";
+import { createAudit, createRateLimiter, clientIp, LIMITS as RATE_LIMITS } from "./middleware.js";
+import { createMagicLinks } from "./magic-link.js";
 import { createRealtime } from "./realtime.js";
 import { MAX_UPLOAD_BYTES, createStorage, guessMime, sanitizeName } from "./storage.js";
 import { uid } from "./ids.js";
@@ -33,14 +43,18 @@ const HOST = process.env.HOST || "127.0.0.1";
 const DATABASE_FILE = process.env.DATABASE_FILE || join(root, ".data", "notion.sqlite");
 const UPLOAD_DIR = join(root, ".data", "uploads");
 
-export async function buildServer({ databaseFile = DATABASE_FILE, logger = false } = {}) {
+export async function buildServer({ databaseFile = DATABASE_FILE, logger = false, env = process.env } = {}) {
   const db = openDatabase(databaseFile);
   migrate(db);
   const q = querier(db);
-  const storage = createStorage(UPLOAD_DIR);
+  const storage = createStorage(UPLOAD_DIR, env);
   const realtime = createRealtime();
+  const audit = createAudit(db);
+  const magic = createMagicLinks(db);
+  const rateLimiter = createRateLimiter({ windowMs: 60_000, max: RATE_LIMITS.auth.max });
 
   purgeExpiredSessions(db);
+  magic.sweep();
 
   const app = Fastify({ logger, bodyLimit: LIMITS.jsonBytes });
   app.register(cookie);
@@ -65,6 +79,50 @@ export async function buildServer({ databaseFile = DATABASE_FILE, logger = false
     return session.user;
   }
 
+  /** Throttle helper: 429 + Retry-After when a client burns through a bucket. */
+  function throttle(request, reply, bucket, key = "") {
+    const limit = RATE_LIMITS[bucket] ?? RATE_LIMITS.write;
+    const limiter = bucket === "auth" ? rateLimiter : createRateLimiterFor(bucket, limit);
+    const result = limiter.take(`${bucket}:${key || clientIp(request)}`);
+    reply.header("X-RateLimit-Remaining", String(Math.max(0, result.remaining)));
+    if (!result.allowed) {
+      reply.header("Retry-After", String(result.retryAfter));
+      reply.code(429).send({ error: "Too many requests — slow down a moment." });
+      return false;
+    }
+    return true;
+  }
+
+  const buckets = new Map();
+  function createRateLimiterFor(bucket, limit) {
+    if (!buckets.has(bucket)) buckets.set(bucket, createRateLimiter(limit));
+    return buckets.get(bucket);
+  }
+
+  /** Resolve a page the caller may touch, or answer 403/404 and return null. */
+  function resolvePage(request, reply, id, action = ACTIONS.read) {
+    const user = requireUser(request, reply);
+    if (!user) return null;
+    const page = repo.getPage(db, id);
+    if (!page) {
+      reply.code(404).send({ error: "Page not found." });
+      return null;
+    }
+    try {
+      assertAccess(db, page, user.id, action);
+    } catch (error) {
+      audit.record(request, {
+        user,
+        action: `${action}.denied`,
+        target: page.id,
+        detail: { status: error.statusCode || 403 },
+      });
+      reply.code(error.statusCode || 403).send({ error: error.message });
+      return null;
+    }
+    return { page, user };
+  }
+
   app.decorate("requireUser", requireUser);
   app.decorate("db", db);
   app.decorate("repo", repo);
@@ -80,6 +138,7 @@ export async function buildServer({ databaseFile = DATABASE_FILE, logger = false
 
   /* ---------------- auth routes ---------------- */
   app.post(apiUrl(API.auth.register.path), async (request, reply) => {
+    if (!throttle(request, reply, "auth")) return reply;
     const email = normalizeEmail(request.body?.email);
     const name = withinLimits(String(request.body?.name ?? "").trim(), LIMITS.name);
     const password = String(request.body?.password ?? "");
@@ -91,7 +150,10 @@ export async function buildServer({ databaseFile = DATABASE_FILE, logger = false
     }
 
     const existing = db.prepare("SELECT id FROM users WHERE email = ?").get(email);
-    if (existing) return reply.code(409).send({ error: "That email is already registered." });
+    if (existing) {
+      audit.record(request, { action: "auth.register.duplicate", target: email });
+      return reply.code(409).send({ error: "That email is already registered." });
+    }
 
     const id = uid();
     const stamp = Date.now();
@@ -102,25 +164,55 @@ export async function buildServer({ databaseFile = DATABASE_FILE, logger = false
 
     const session = createSession(db, id, request.headers["user-agent"]);
     reply.header("Set-Cookie", sessionCookie(session.id));
+    rateLimiter.reset(`auth:${clientIp(request)}`);
+    audit.record(request, {
+      user: { id, email },
+      action: "auth.register",
+      target: id,
+    });
     return { user: { id, email, name, color: "#2383e2" } };
   });
 
   app.post(apiUrl(API.auth.login.path), async (request, reply) => {
     const email = normalizeEmail(request.body?.email);
     const password = String(request.body?.password ?? "");
+    /* Keyed per account and per IP: an attack on one account never locks out
+       everyone else behind the same address. */
+    const bucketKey = `login:${email}:${clientIp(request)}`;
+
+    /* Only failed attempts spend from the bucket: a correct password is never
+       locked out, an attacker guessing one is. */
+    const gate = rateLimiter.peek(bucketKey);
+    reply.header("X-RateLimit-Remaining", String(gate.remaining));
+    if (!gate.allowed) {
+      reply.header("Retry-After", String(gate.retryAfter));
+      audit.record(request, { action: "auth.login.throttled", target: email });
+      return reply.code(429).send({ error: "Too many failed attempts — try again shortly." });
+    }
+
     const row = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
     if (!row || !(await verifyPassword(password, row.password_hash))) {
+      rateLimiter.take(bucketKey);
+      audit.record(request, { action: "auth.login.failed", target: email });
       return reply.code(401).send({ error: "Email or password is incorrect." });
     }
     const session = createSession(db, row.id, request.headers["user-agent"]);
     reply.header("Set-Cookie", sessionCookie(session.id));
+    rateLimiter.reset(bucketKey);
+    audit.record(request, {
+      user: { id: row.id, email: row.email },
+      action: "auth.login",
+      target: row.id,
+    });
     return { user: { id: row.id, email: row.email, name: row.name, color: row.color } };
   });
 
   app.post(apiUrl(API.auth.logout.path), async (request, reply) => {
+    const session = currentUser(request);
     const sessionId = request.cookies?.[SESSION_COOKIE];
     destroySession(db, sessionId);
     reply.header("Set-Cookie", clearedSessionCookie());
+    if (session) audit.record(request, { user: session.user, action: "auth.logout", target: session.user.id });
     return { ok: true };
   });
 
@@ -130,12 +222,47 @@ export async function buildServer({ databaseFile = DATABASE_FILE, logger = false
     return { user: session.user };
   });
 
+  /* ---------------- passwordless sign-in ---------------- */
+  app.post(`${API.base}/auth/magic/request`, async (request, reply) => {
+    if (!throttle(request, reply, "auth")) return reply;
+    const email = normalizeEmail(request.body?.email);
+    if (!isEmail(email)) return reply.code(400).send({ error: "Enter a valid email address." });
+
+    const row = db.prepare("SELECT id, email FROM users WHERE email = ?").get(email);
+    /* Always answer the same way so the endpoint cannot be used to enumerate accounts. */
+    if (row) {
+      const token = magic.issue(row.id, { ip: clientIp(request) });
+      await magic.send(row.email, token);
+      audit.record(request, { user: { id: row.id, email }, action: "auth.magic.request", target: row.id });
+    }
+    return { ok: true, message: "If that account exists, a sign-in link is on its way." };
+  });
+
+  app.post(`${API.base}/auth/magic/verify`, async (request, reply) => {
+    if (!throttle(request, reply, "auth")) return reply;
+    const token = String(request.body?.token ?? "");
+    const result = magic.consume(token, "login");
+    if (!result.ok) {
+      audit.record(request, { action: "auth.magic.failed", detail: { reason: result.reason } });
+      return reply.code(400).send({ error: "That link is invalid, used, or expired." });
+    }
+    const user = db.prepare("SELECT id, email, name, color FROM users WHERE id = ?").get(result.userId);
+    if (!user) return reply.code(400).send({ error: "That link is invalid, used, or expired." });
+
+    const session = createSession(db, user.id, request.headers["user-agent"]);
+    reply.header("Set-Cookie", sessionCookie(session.id));
+    rateLimiter.reset(`auth:${clientIp(request)}`);
+    audit.record(request, { user, action: "auth.magic.verify", target: user.id });
+    return { user };
+  });
+
   /* ---------------- workspace bootstrap ---------------- */
   app.get(apiUrl(API.workspace.path), async (request, reply) => {
     const user = requireUser(request, reply);
     if (!user) return reply;
-    const pages = repo.listPages(db, user.id);
-    const trashed = repo.listPages(db, user.id, { includeTrash: true }).filter((page) => page.trashedAt);
+    const all = repo.listPages(db, user.id, { includeTrash: true, shared: true });
+    const pages = all.filter((page) => !page.trashedAt);
+    const trashed = all.filter((page) => page.trashedAt);
     const teamspaces = repo.listTeamspaces(db, user.id).map((teamspace) => ({
       ...teamspace,
       members: repo.listMembers(db, teamspace.id),
@@ -148,71 +275,140 @@ export async function buildServer({ databaseFile = DATABASE_FILE, logger = false
     const user = requireUser(request, reply);
     if (!user) return reply;
     const includeTrash = request.query?.trash === "1";
-    return { pages: repo.listPages(db, user.id, { includeTrash }) };
+    const pages = repo
+      .listPages(db, user.id, { includeTrash: true, shared: true })
+      .filter((page) => (includeTrash ? true : !page.trashedAt));
+    return { pages };
   });
 
   app.post(apiUrl(API.pages.create.path), async (request, reply) => {
+    if (!throttle(request, reply, "write")) return reply;
     const user = requireUser(request, reply);
     if (!user) return reply;
     const page = repo.createPage(db, user.id, request.body ?? {});
+    audit.record(request, { user, action: "page.create", target: page.id, detail: { title: page.title } });
     realtime.broadcast("page:created", { page }, { except: request.id });
     return reply.code(201).send({ page, blocks: repo.listBlocks(db, page.id) });
   });
 
   app.get(`${API.base}/pages/:id`, async (request, reply) => {
-    const user = requireUser(request, reply);
-    if (!user) return reply;
-    const page = repo.getPage(db, request.params.id);
-    if (!page || page.ownerId !== user.id) return reply.code(404).send({ error: "Page not found." });
-    return { page, blocks: repo.listBlocks(db, page.id), options: repo.getPageOptions(db, page.id) };
+    const resolved = resolvePage(request, reply, request.params.id, ACTIONS.read);
+    if (!resolved) return reply;
+    const { page, user } = resolved;
+    const access = accessFor(db, page, user.id);
+    return {
+      page,
+      blocks: repo.listBlocks(db, page.id),
+      options: repo.getPageOptions(db, page.id),
+      role: access.role,
+      permissions: access.allowed,
+    };
   });
 
   app.patch(`${API.base}/pages/:id`, async (request, reply) => {
-    const user = requireUser(request, reply);
-    if (!user) return reply;
-    const existing = repo.getPage(db, request.params.id);
-    if (!existing || existing.ownerId !== user.id) {
-      return reply.code(404).send({ error: "Page not found." });
-    }
-    const page = repo.updatePage(db, request.params.id, request.body ?? {});
-    realtime.broadcast("page:updated", { page }, { except: request.id });
-    return { page };
+    if (!throttle(request, reply, "write")) return reply;
+    const resolved = resolvePage(request, reply, request.params.id, ACTIONS.write);
+    if (!resolved) return reply;
+    const { page, user } = resolved;
+    const updated = repo.updatePage(db, request.params.id, request.body ?? {});
+    audit.record(request, { user, action: "page.update", target: page.id, detail: request.body ?? {} });
+    realtime.broadcast("page:updated", { page: updated }, { except: request.id });
+    return { page: updated };
   });
 
   app.put(`${API.base}/pages/:id/blocks`, async (request, reply) => {
-    const user = requireUser(request, reply);
-    if (!user) return reply;
-    const existing = repo.getPage(db, request.params.id);
-    if (!existing || existing.ownerId !== user.id) {
-      return reply.code(404).send({ error: "Page not found." });
-    }
+    if (!throttle(request, reply, "write")) return reply;
+    const resolved = resolvePage(request, reply, request.params.id, ACTIONS.write);
+    if (!resolved) return reply;
+    const { page, user } = resolved;
     const incoming = Array.isArray(request.body?.blocks) ? request.body.blocks : [];
     const blocks = incoming.slice(0, LIMITS.blocksPerPage).map((block) => ({
       ...block,
       id: withinLimits(block?.id, 64) || uid(),
       type: withinLimits(block?.type, 32) || "paragraph",
     }));
-    const saved = repo.replaceBlocks(db, request.params.id, blocks);
-    realtime.broadcast("page:updated", { pageId: request.params.id, blocks: saved }, { except: request.id });
+    const saved = repo.replaceBlocks(db, page.id, blocks);
+    audit.record(request, {
+      user,
+      action: "page.blocks",
+      target: page.id,
+      detail: { count: saved.length },
+    });
+    realtime.broadcast("page:updated", { pageId: page.id, blocks: saved }, { except: request.id });
     return { blocks: saved };
   });
 
   app.post(`${API.base}/pages/:id/restore`, async (request, reply) => {
-    const user = requireUser(request, reply);
-    if (!user) return reply;
-    const page = repo.restorePage(db, request.params.id);
-    if (!page || page.ownerId !== user.id) return reply.code(404).send({ error: "Page not found." });
-    return { page };
+    const resolved = resolvePage(request, reply, request.params.id, ACTIONS.write);
+    if (!resolved) return reply;
+    const { page, user } = resolved;
+    const restored = repo.restorePage(db, page.id);
+    audit.record(request, { user, action: "page.restore", target: page.id });
+    return { page: restored };
   });
 
   app.delete(`${API.base}/pages/:id`, async (request, reply) => {
-    const user = requireUser(request, reply);
-    if (!user) return reply;
-    const page = repo.getPage(db, request.params.id);
-    if (!page || page.ownerId !== user.id) return reply.code(404).send({ error: "Page not found." });
-    const count = request.query?.purge === "1" ? repo.purgePage(db, page.id) : repo.deletePage(db, page.id);
+    const resolved = resolvePage(request, reply, request.params.id, ACTIONS.delete);
+    if (!resolved) return reply;
+    const { page, user } = resolved;
+    const purge = request.query?.purge === "1";
+    const count = purge ? repo.purgePage(db, page.id) : repo.deletePage(db, page.id);
+    audit.record(request, { user, action: purge ? "page.purge" : "page.trash", target: page.id });
     realtime.broadcast("page:deleted", { pageId: page.id }, { except: request.id });
     return { ok: true, count };
+  });
+
+  /* ---------------- page sharing ---------------- */
+  app.get(`${API.base}/pages/:id/members`, async (request, reply) => {
+    const resolved = resolvePage(request, reply, request.params.id, ACTIONS.read);
+    if (!resolved) return reply;
+    const { page, user } = resolved;
+    const access = accessFor(db, page, user.id);
+    return { members: listPageMembers(db, page.id), role: access.role };
+  });
+
+  app.post(`${API.base}/pages/:id/members`, async (request, reply) => {
+    if (!throttle(request, reply, "write")) return reply;
+    const resolved = resolvePage(request, reply, request.params.id, ACTIONS.share);
+    if (!resolved) return reply;
+    const { page, user } = resolved;
+    const email = normalizeEmail(request.body?.email);
+    const role = ["viewer", "member"].includes(request.body?.role) ? request.body.role : "viewer";
+    const invitee = db.prepare("SELECT id, name, email FROM users WHERE email = ?").get(email);
+    if (!invitee) {
+      audit.record(request, { user, action: "page.share.unknown", target: page.id, detail: { email } });
+      return reply.code(404).send({ error: "No account with that email yet." });
+    }
+    if (invitee.id === page.ownerId) {
+      return reply.code(400).send({ error: "That person already owns this page." });
+    }
+    const members = sharePage(db, page.id, invitee.id, role, user.id);
+    audit.record(request, {
+      user,
+      action: "page.share",
+      target: page.id,
+      detail: { email, role },
+    });
+    realtime.broadcast("page:updated", { pageId: page.id, members }, { except: request.id });
+    return reply.code(201).send({ members });
+  });
+
+  app.delete(`${API.base}/pages/:id/members/:userId`, async (request, reply) => {
+    const resolved = resolvePage(request, reply, request.params.id, ACTIONS.share);
+    if (!resolved) return reply;
+    const { page, user } = resolved;
+    const removed = unsharePage(db, page.id, request.params.userId);
+    if (!removed) return reply.code(404).send({ error: "That person has no access." });
+    audit.record(request, { user, action: "page.unshare", target: page.id, detail: { userId: request.params.userId } });
+    return { ok: true, members: listPageMembers(db, page.id) };
+  });
+
+  /* ---------------- audit trail ---------------- */
+  app.get(`${API.base}/audit`, async (request, reply) => {
+    const user = requireUser(request, reply);
+    if (!user) return reply;
+    const limit = Math.min(Number(request.query?.limit) || 50, 200);
+    return { entries: audit.list({ userId: user.id, limit }) };
   });
 
   /* ---------------- teamspaces ---------------- */
@@ -235,13 +431,67 @@ export async function buildServer({ databaseFile = DATABASE_FILE, logger = false
   });
 
   app.post(`${API.base}/teamspaces/:id/members`, async (request, reply) => {
+    if (!throttle(request, reply, "write")) return reply;
     const user = requireUser(request, reply);
     if (!user) return reply;
+    const teamspace = db.prepare("SELECT id FROM teamspaces WHERE id = ?").get(request.params.id);
+    if (!teamspace) return reply.code(404).send({ error: "Teamspace not found." });
+
+    const role = ["viewer", "member", "admin"].includes(request.body?.role)
+      ? request.body.role
+      : "member";
+    const membership = db
+      .prepare("SELECT role FROM teamspace_members WHERE teamspace_id = ? AND user_id = ?")
+      .get(teamspace.id, user.id);
+    if (membership?.role !== "owner" && membership?.role !== "admin") {
+      audit.record(request, { user, action: "teamspace.member.denied", target: teamspace.id });
+      return reply.code(403).send({ error: "Only admins can add members." });
+    }
+
     const email = normalizeEmail(request.body?.email);
-    const member = db.prepare("SELECT id FROM users WHERE email = ?").get(email);
-    if (!member) return reply.code(404).send({ error: "No account with that email yet." });
-    repo.addMember(db, request.params.id, member.id, request.body?.role ?? "member");
-    return { members: repo.listMembers(db, request.params.id) };
+    const member = db.prepare("SELECT id, email FROM users WHERE email = ?").get(email);
+    if (!member) {
+      audit.record(request, {
+        user,
+        action: "teamspace.member.unknown",
+        target: teamspace.id,
+        detail: { email },
+      });
+      return reply.code(404).send({ error: "No account with that email yet." });
+    }
+    repo.addMember(db, teamspace.id, member.id, role);
+    audit.record(request, {
+      user,
+      action: "teamspace.member.add",
+      target: teamspace.id,
+      detail: { email, role },
+    });
+    return { members: repo.listMembers(db, teamspace.id) };
+  });
+
+  app.delete(`${API.base}/teamspaces/:id/members/:userId`, async (request, reply) => {
+    const user = requireUser(request, reply);
+    if (!user) return reply;
+    const membership = db
+      .prepare("SELECT role FROM teamspace_members WHERE teamspace_id = ? AND user_id = ?")
+      .get(request.params.id, user.id);
+    if (membership?.role !== "owner" && membership?.role !== "admin") {
+      return reply.code(403).send({ error: "Only admins can remove members." });
+    }
+    if (membership.role === "owner") {
+      return reply.code(400).send({ error: "Transfer ownership before removing the owner." });
+    }
+    const removed = db
+      .prepare("DELETE FROM teamspace_members WHERE teamspace_id = ? AND user_id = ?")
+      .run(request.params.id, request.params.userId).changes;
+    if (!removed) return reply.code(404).send({ error: "That person is not a member." });
+    audit.record(request, {
+      user,
+      action: "teamspace.member.remove",
+      target: request.params.id,
+      detail: { userId: request.params.userId },
+    });
+    return { ok: true, members: repo.listMembers(db, request.params.id) };
   });
 
   /* ---------------- comments ---------------- */
@@ -251,20 +501,31 @@ export async function buildServer({ databaseFile = DATABASE_FILE, logger = false
     const pageId = request.query?.pageId ?? null;
     const teamspaceId = request.query?.teamspaceId ?? null;
     if (!pageId && !teamspaceId) return reply.code(400).send({ error: "pageId or teamspaceId is required." });
+    if (pageId) {
+      const page = repo.getPage(db, pageId);
+      if (!page || !accessFor(db, page, user.id).allowed[ACTIONS.read]) {
+        return reply.code(404).send({ error: "Page not found." });
+      }
+    }
     return { comments: repo.listComments(db, { pageId, teamspaceId }) };
   });
 
   app.post(apiUrl(API.comments.create.path), async (request, reply) => {
+    if (!throttle(request, reply, "write")) return reply;
     const user = requireUser(request, reply);
     if (!user) return reply;
     const text = withinLimits(String(request.body?.text ?? "").trim(), LIMITS.commentText);
     if (!text) return reply.code(400).send({ error: "Write something first." });
+    if (request.body?.pageId && !resolvePage(request, reply, request.body.pageId, ACTIONS.comment)) {
+      return reply;
+    }
     const comment = repo.createComment(db, user.id, {
       pageId: request.body?.pageId ?? null,
       teamspaceId: request.body?.teamspaceId ?? null,
       text,
       anchor: request.body?.anchor ?? null,
     });
+    audit.record(request, { user, action: "comment.create", target: comment.id });
     realtime.broadcast("comment:created", { comment });
     return reply.code(201).send({ comment });
   });
@@ -272,24 +533,45 @@ export async function buildServer({ databaseFile = DATABASE_FILE, logger = false
   app.patch(`${API.base}/comments/:id`, async (request, reply) => {
     const user = requireUser(request, reply);
     if (!user) return reply;
-    const comment = repo.updateComment(db, request.params.id, request.body ?? {});
+    const comment = db
+      .prepare("SELECT id, author_id FROM comments WHERE id = ?")
+      .get(request.params.id);
     if (!comment) return reply.code(404).send({ error: "Comment not found." });
-    return { comment };
+    if (comment.author_id !== user.id) {
+      audit.record(request, { user, action: "comment.update.denied", target: comment.id });
+      return reply.code(403).send({ error: "You can only edit your own comments." });
+    }
+    return { comment: repo.updateComment(db, comment.id, request.body ?? {}) };
   });
 
   app.delete(`${API.base}/comments/:id`, async (request, reply) => {
     const user = requireUser(request, reply);
     if (!user) return reply;
-    const removed = repo.removeComment(db, request.params.id);
-    if (!removed) return reply.code(404).send({ error: "Comment not found." });
+    const comment = db
+      .prepare("SELECT id, author_id, page_id FROM comments WHERE id = ?")
+      .get(request.params.id);
+    if (!comment) return reply.code(404).send({ error: "Comment not found." });
+
+    let allowed = comment.author_id === user.id;
+    if (!allowed && comment.page_id) {
+      const page = repo.getPage(db, comment.page_id);
+      allowed = page ? accessFor(db, page, user.id).allowed[ACTIONS.delete] : false;
+    }
+    if (!allowed) {
+      audit.record(request, { user, action: "comment.delete.denied", target: comment.id });
+      return reply.code(403).send({ error: "You cannot delete this comment." });
+    }
+    repo.removeComment(db, comment.id);
+    audit.record(request, { user, action: "comment.delete", target: comment.id });
     return { ok: true };
   });
 
   /* ---------------- search ---------------- */
   app.get(apiUrl(API.search.path), async (request, reply) => {
+    if (!throttle(request, reply, "search")) return reply;
     const user = requireUser(request, reply);
     if (!user) return reply;
-    const results = repo.searchPages(db, user.id, request.query?.q ?? "");
+    const results = repo.searchAccessible(db, user.id, request.query?.q ?? "");
     return { results };
   });
 

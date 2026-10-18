@@ -1,6 +1,6 @@
 /* Storage adapter: local disk driver now, S3-compatible driver later. */
 
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, createHmac, randomUUID } from "node:crypto";
 import { mkdirSync, createReadStream, statSync } from "node:fs";
 import { readFile, writeFile, unlink } from "node:fs/promises";
 import { dirname, extname, join, normalize, resolve, sep } from "node:path";
@@ -88,23 +88,146 @@ export function createLocalStorage(rootDir) {
 }
 
 /**
- * S3-compatible driver contract. Kept explicit so the swap is a config change:
- *   STORAGE_DRIVER=s3 S3_ENDPOINT=... S3_BUCKET=... S3_ACCESS_KEY=... S3_SECRET_KEY=...
+ * S3-compatible driver using AWS Signature V4, hand-rolled so the project keeps
+ * its "no native build, few dependencies" property.
+ *
+ *   STORAGE_DRIVER=s3
+ *   S3_ENDPOINT=https://s3.example.com   (or https://s3.eu-west-1.amazonaws.com)
+ *   S3_BUCKET=notion-clone
+ *   S3_REGION=eu-west-1
+ *   S3_ACCESS_KEY=...  S3_SECRET_KEY=...
+ *   S3_FORCE_PATH_STYLE=1   (for MinIO, Ceph, R2, ...)
  */
-export function createS3Storage() {
-  const endpoint = process.env.S3_ENDPOINT;
-  const bucket = process.env.S3_BUCKET;
+export function createS3Storage(env = process.env) {
+  const endpoint = env.S3_ENDPOINT;
+  const bucket = env.S3_BUCKET;
   if (!endpoint || !bucket) {
     throw new Error("S3 storage requires S3_ENDPOINT and S3_BUCKET");
   }
-  throw new Error(
-    `S3 driver is configured but not compiled in (endpoint=${endpoint}, bucket=${bucket}). Use the local driver for now.`
-  );
+
+  const region = env.S3_REGION || "us-east-1";
+  const accessKey = env.S3_ACCESS_KEY || "";
+  const secretKey = env.S3_SECRET_KEY || "";
+  const pathStyle = env.S3_FORCE_PATH_STYLE === "1" || !env.S3_ENDPOINT.includes("amazonaws.com");
+  if (!accessKey || !secretKey) {
+    throw new Error("S3 storage requires S3_ACCESS_KEY and S3_SECRET_KEY");
+  }
+
+  const base = endpoint.replace(/\/+$/, "");
+  const host = new URL(base).host;
+
+  function objectUrl(key) {
+    return pathStyle
+      ? `${base}/${bucket}/${encodeKey(key)}`
+      : `${base.replace("//${host}", `//${bucket}.${host}`)}/${encodeKey(key)}`;
+  }
+
+  function signedRequest(method, key, { payload = Buffer.alloc(0), contentType } = {}) {
+    const now = new Date();
+    const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, "");
+    const dateStamp = amzDate.slice(0, 8);
+    const payloadHash = createHash("sha256").update(payload).digest("hex");
+    const url = new URL(objectUrl(key));
+    const canonicalUri = url.pathname;
+    const headers = {
+      host,
+      "x-amz-content-sha256": payloadHash,
+      "x-amz-date": amzDate,
+    };
+    if (contentType) headers["content-type"] = contentType;
+
+    const signedHeaders = Object.keys(headers).sort();
+    const canonicalHeaders = signedHeaders.map((name) => `${name}:${headers[name]}\n`).join("");
+    const canonicalRequest = [
+      method,
+      canonicalUri,
+      "",
+      canonicalHeaders,
+      signedHeaders.join(";"),
+      payloadHash,
+    ].join("\n");
+
+    const scope = `${dateStamp}/${region}/s3/aws4_request`;
+    const stringToSign = [
+      "AWS4-HMAC-SHA256",
+      amzDate,
+      scope,
+      createHash("sha256").update(canonicalRequest).digest("hex"),
+    ].join("\n");
+
+    let signingKey = createHmac("sha256", `AWS4${secretKey}`).update(dateStamp).digest();
+    for (const part of [region, "s3", "aws4_request"]) {
+      signingKey = createHmac("sha256", signingKey).update(part).digest();
+    }
+    const signature = createHmac("sha256", signingKey).update(stringToSign).digest("hex");
+
+    return {
+      url: objectUrl(key),
+      headers: {
+        ...headers,
+        authorization: `AWS4-HMAC-SHA256 Credential=${accessKey}/${scope}, SignedHeaders=${signedHeaders.join(";")}, Signature=${signature}`,
+      },
+    };
+  }
+
+  return {
+    driver: "s3",
+
+    /* Exposed for tests and for anyone debugging a signature problem. */
+    signedRequest,
+
+    async put(buffer, name) {
+      const id = randomUUID();
+      const key = `${id}${extname(name)}`;
+      const target = signedRequest("PUT", key, {
+        payload: buffer,
+        contentType: guessMime(name),
+      });
+      const response = await fetch(target.url, {
+        method: "PUT",
+        headers: target.headers,
+        body: buffer,
+      });
+      if (!response.ok) {
+        throw new Error(`S3 PUT failed (${response.status}) for ${key}`);
+      }
+      return {
+        key,
+        bytes: buffer.length,
+        sha256: createHash("sha256").update(buffer).digest("hex"),
+      };
+    },
+
+    async get(key) {
+      const target = signedRequest("GET", key);
+      const response = await fetch(target.url, { headers: target.headers });
+      if (!response.ok) throw new Error(`S3 GET failed (${response.status}) for ${key}`);
+      const buffer = Buffer.from(await response.arrayBuffer());
+      return { buffer, size: buffer.length };
+    },
+
+    async remove(key) {
+      const target = signedRequest("DELETE", key);
+      const response = await fetch(target.url, { method: "DELETE", headers: target.headers });
+      return response.ok || response.status === 404;
+    },
+
+    pathFor(key) {
+      return objectUrl(key);
+    },
+  };
 }
 
-export function createStorage(rootDir) {
-  const driver = process.env.STORAGE_DRIVER || "local";
-  if (driver === "s3") return createS3Storage();
+function encodeKey(key) {
+  return String(key)
+    .split("/")
+    .map((part) => encodeURIComponent(part))
+    .join("/");
+}
+
+export function createStorage(rootDir, env = process.env) {
+  const driver = env.STORAGE_DRIVER || "local";
+  if (driver === "s3") return createS3Storage(env);
   return createLocalStorage(rootDir);
 }
 

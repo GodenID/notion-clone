@@ -42,11 +42,30 @@ function uniqueSlug(db, base, excludeId = null) {
   }
 }
 
-export function listPages(db, ownerId, { includeTrash = false } = {}) {
-  const sql = includeTrash
-    ? "SELECT * FROM pages WHERE owner_id = ? ORDER BY trashed_at IS NULL DESC, updated_at DESC"
-    : "SELECT * FROM pages WHERE owner_id = ? AND trashed_at IS NULL ORDER BY updated_at DESC";
-  return db.prepare(sql).all(ownerId).map(rowToPage);
+export function listPages(db, ownerId, { includeTrash = false, shared = false } = {}) {
+  const owned = includeTrash
+    ? db
+        .prepare("SELECT * FROM pages WHERE owner_id = ? ORDER BY trashed_at IS NULL DESC, updated_at DESC")
+        .all(ownerId)
+    : db
+        .prepare("SELECT * FROM pages WHERE owner_id = ? AND trashed_at IS NULL ORDER BY updated_at DESC")
+        .all(ownerId);
+
+  if (!shared) return owned.map(rowToPage);
+
+  /* Everything shared with this user, directly or through a teamspace. */
+  const extra = db
+    .prepare(
+      `SELECT DISTINCT p.* FROM pages p
+       LEFT JOIN page_members m ON m.page_id = p.id AND m.user_id = ?
+       LEFT JOIN teamspace_members tm ON tm.teamspace_id = p.teamspace_id AND tm.user_id = ?
+       WHERE p.owner_id <> ? AND (m.user_id IS NOT NULL OR tm.user_id IS NOT NULL)
+       ORDER BY p.trashed_at IS NULL DESC, p.updated_at DESC`
+    )
+    .all(ownerId, ownerId, ownerId);
+
+  const seen = new Set(owned.map((row) => row.id));
+  return [...owned, ...extra.filter((row) => !seen.has(row.id))].map(rowToPage);
 }
 
 export function getPage(db, id) {
@@ -525,6 +544,30 @@ export function searchPages(db, ownerId, query, limit = 25) {
       .all(ownerId, like, like, limit);
     return hydrateSearch(db, rows);
   }
+}
+
+/**
+ * Search across everything the user can reach, not just what they own.
+ * The FTS query keeps its bm25 ranking; the LIKE fallback does the same filtering.
+ */
+export function searchAccessible(db, userId, query, limit = 25) {
+  const owned = searchPages(db, userId, query, limit);
+  const seen = new Set(owned.map((page) => page.id));
+
+  const shared = listPages(db, userId, { shared: true }).filter(
+    (page) => page.ownerId !== userId && !page.trashedAt
+  );
+  const needle = String(query || "").trim().toLowerCase();
+  if (!needle) return owned;
+
+  const matches = [];
+  for (const page of shared) {
+    if (seen.has(page.id)) continue;
+    if (!page.title.toLowerCase().includes(needle)) continue;
+    matches.push({ ...page, snippet: "", shared: true });
+    if (matches.length >= limit) break;
+  }
+  return [...owned, ...matches].slice(0, limit);
 }
 
 function hydrateSearch(db, rows) {

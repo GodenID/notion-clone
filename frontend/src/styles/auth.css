@@ -225,6 +225,10 @@ body.auth {
   color: #37352f;
 }
 
+.auth-switch + .auth-switch {
+  margin-left: 14px;
+}
+
 .auth-field input[type="password"] {
   letter-spacing: 0.06em;
 }

@@ -16,6 +16,7 @@ const demoBtn = document.getElementById("demo-btn");
 const modeHint = document.getElementById("mode-hint");
 const localHint = document.getElementById("local-hint");
 const modeToggle = document.getElementById("auth-mode-toggle");
+const magicLinkBtn = document.getElementById("magic-link-btn");
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const MIN_PASSWORD = 8;
@@ -164,6 +165,30 @@ async function demo() {
 async function boot() {
   serverMode = (await detectMode()) === "server";
   if (serverMode) {
+    magicLinkBtn.hidden = false;
+    magicLinkBtn.addEventListener("click", async () => {
+      const email = emailInput.value.trim();
+      if (!EMAIL_PATTERN.test(email)) {
+        emailError.hidden = false;
+        emailError.textContent = "Enter a valid email address first.";
+        return;
+      }
+      setLoading(true);
+      try {
+        const response = await auth.requestMagicLink(email);
+        setLoading(false);
+        if (response?.ok) {
+          passwordError.hidden = false;
+          passwordError.textContent = response.message || "Check your inbox for the sign-in link.";
+        } else {
+          showError(response?.error || "Could not send the link.");
+        }
+      } catch (error) {
+        setLoading(false);
+        showError(error.message || "Could not send the link.");
+      }
+    });
+
     renderMode();
     try {
       const me = await auth.me();
