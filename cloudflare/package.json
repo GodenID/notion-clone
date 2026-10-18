@@ -1,0 +1,19 @@
+{
+  "name": "@notion-clone/cloudflare",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:create": "wrangler d1 create notion-clone-db",
+    "db:migrate": "wrangler d1 migrations apply notion-clone-db",
+    "r2:create": "wrangler r2 bucket create notion-clone-uploads"
+  },
+  "dependencies": {
+    "hono": "^4.6.0"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

@@ -1,0 +1,24 @@
+name = "notion-clone"
+main = "src/index.js"
+compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+ENVIRONMENT = "production"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "notion-clone-db"
+database_id = "REPLACE_WITH_YOUR_D1_ID"
+
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "notion-clone-uploads"
+
+[[durable_objects.bindings]]
+name = "COLLAB"
+class_name = "CollabRoom"
+
+[[migrations]]
+tag = "v1"
+new_classes = ["CollabRoom"]
