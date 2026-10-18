@@ -1435,3 +1435,95 @@ kbd {
     transition: none;
   }
 }
+
+
+/* ---------- NookSpace brand mark ---------- */
+.brand-mark, .ws-switcher__avatar--ns {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+}
+.brand-mark { font-size: 22px; }
+.brand-mark--lg { font-size: 28px; }
+.ws-switcher__avatar--ns {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  background: linear-gradient(135deg, #2f6b4f 0%, #2383e2 100%);
+  color: #fff;
+  font-size: 12px;
+}
+.ws-switcher__avatar--ns .ns-mark { color: #fff; }
+.ws-switcher__avatar--ns .ns-mark--accent { color: #f5d76e; }
+.ns-mark--accent { color: #b07d2b; }
+
+
+/* ---------- Created By Goden ---------- */
+.created-by {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 16px;
+  font-size: 12px;
+  color: #969694;
+}
+.created-by__label { font-weight: 400; }
+.created-by__name {
+  font-weight: 700;
+  color: #37352f;
+  text-decoration: none;
+  background: linear-gradient(135deg, #2f6b4f 0%, #2383e2 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  transition: opacity 0.15s ease;
+}
+.created-by__name:hover { opacity: 0.7; }
+.created-by__heart {
+  color: #e25555;
+  font-size: 13px;
+  animation: heartbeat 1.4s ease-in-out infinite;
+}
+@keyframes heartbeat {
+  0%, 100% { transform: scale(1); }
+  15% { transform: scale(1.25); }
+  30% { transform: scale(1); }
+  45% { transform: scale(1.15); }
+  60% { transform: scale(1); }
+}
+.created-by--auth { margin-top: 24px; }
+
+.legal-links {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  font-size: 11px;
+  color: #969694;
+  padding: 8px 0;
+}
+
+.legal-links a {
+  color: #969694;
+  text-decoration: none;
+}
+
+.legal-links a:hover {
+  color: #37352f;
+  text-decoration: underline;
+}
+
+.auth__legal {
+  font-size: 11.5px;
+  color: #969694;
+  margin: 0 0 8px;
+  line-height: 1.5;
+}
+
+.auth__legal a {
+  color: #6b6b68;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}

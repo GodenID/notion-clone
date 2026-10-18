@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Privacy Policy - NookSpace</title>
+    <link rel="stylesheet" href="src/styles/tokens.css" />
+    <link rel="stylesheet" href="src/styles/app.css" />
+    <style>
+      .legal { max-width: 760px; margin: 0 auto; padding: 60px 24px 80px; }
+      .legal h1 { font-size: 36px; margin: 0 0 8px; }
+      .legal .meta { color: #8a8a86; font-size: 13px; margin-bottom: 40px; }
+      .legal h2 { font-size: 20px; margin: 32px 0 12px; }
+      .legal p, .legal li { line-height: 1.7; color: #37352f; }
+      .legal ul { padding-left: 20px; }
+      .legal a { color: #2383e2; }
+      .legal-nav { display: flex; gap: 16px; margin-bottom: 40px; font-size: 13px; }
+      .legal-nav a { color: #6b6b68; text-decoration: none; }
+      .legal-nav a:hover { color: #37352f; }
+      .legal-footer { margin-top: 60px; padding-top: 24px; border-top: 1px solid rgba(55,53,47,0.08); text-align: center; font-size: 12px; color: #969694; }
+    </style>
+  </head>
+  <body>
+    <div class="legal">
+      <nav class="legal-nav">
+        <a href="/">← Back to NookSpace</a>
+        <a href="/terms.html">Terms of Service</a>
+      </nav>
+
+      <h1>Privacy Policy</h1>
+      <p class="meta">Last updated: October 18, 2026</p>
+
+      <p>NookSpace is a self-hosted workspace. <strong>You own your data.</strong> This policy describes what NookSpace collects, how it is used, and your rights.</p>
+
+      <h2>1. What we collect</h2>
+      <ul>
+        <li><strong>Account data:</strong> email, name, password hash (scrypt), and an optional avatar color. Passwords are never stored in plain text.</li>
+        <li><strong>Content:</strong> pages, blocks, databases, comments, teamspaces, and uploaded files you create.</li>
+        <li><strong>Session data:</strong> an opaque session token in an <code>HttpOnly</code>, <code>SameSite=Lax</code> cookie, with a 30-day expiry.</li>
+        <li><strong>Usage metadata:</strong> IP address and user agent, recorded in the audit log for security (login attempts, mutations).</li>
+      </ul>
+
+      <h2>2. How we use it</h2>
+      <p>Your data is used solely to operate your workspace: authentication, rendering pages, search indexing, realtime sync, and file storage. We do not sell, share, or monetize your data. There is no advertising.</p>
+
+      <h2>3. Where it lives</h2>
+      <p>In self-hosted mode, everything lives on the machine or server you control. In Cloudflare mode, data lives in your own Cloudflare account (D1 database, R2 bucket). NookSpace has no central server and no access to your data.</p>
+
+      <h2>4. Cookies</h2>
+      <p>NookSpace uses one cookie — <code>nookspace_session</code> — for authentication. It is <code>HttpOnly</code> (not readable by JavaScript), <code>SameSite=Lax</code>, and expires after 30 days. No tracking or analytics cookies are set.</p>
+
+      <h2>5. Third-party services</h2>
+      <p>If you enable OAuth (Google or GitHub), those providers handle authentication and may collect data per their own privacy policies. NookSpace only stores the email, name, and provider user ID returned by them. If you use the S3 storage driver, your files are stored in your own S3-compatible bucket.</p>
+
+      <h2>6. Your rights</h2>
+      <ul>
+        <li><strong>Export:</strong> your data is in standard SQLite + JSON. You can copy the database file or export pages as Markdown at any time.</li>
+        <li><strong>Delete:</strong> deleting your account removes all your pages, comments, uploads, and sessions. Teamspaces you own are transferred or deleted.</li>
+        <li><strong>Access:</strong> you can view your audit log at any time via the command palette ("View audit log").</li>
+      </ul>
+
+      <h2>7. Security</h2>
+      <p>Passwords are hashed with scrypt (Node) or PBKDF2 (Cloudflare). Sessions are server-side and revocable. Rate limiting protects against brute-force. Two-factor authentication (TOTP) is available. We recommend running NookSpace behind HTTPS in production.</p>
+
+      <h2>8. Changes to this policy</h2>
+      <p>We may update this policy. Changes will be noted in the repository's changelog. Continued use constitutes acceptance.</p>
+
+      <h2>9. Contact</h2>
+      <p>Questions? Reach out via <a href="https://t.me/inspectoraiofc">Telegram</a> or open an issue on <a href="https://github.com/GodenID/nookspace">GitHub</a>.</p>
+
+      <div class="created-by created-by--auth">
+        <span class="created-by__label">Created by</span>
+        <a class="created-by__name" href="https://t.me/inspectoraiofc" target="_blank" rel="noopener">Goden</a>
+        <span class="created-by__heart">♥</span>
+      </div>
+    </div>
+  </body>
+</html>
